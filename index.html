@@ -533,6 +533,26 @@ function loadQueue(cb){
 }
 
 // Сколько доступно для текущего рабочего по артикулу
+// Для упаковщика — по конкретному артикулу+цвет (artKey = 'G-1')
+function getAvailablePack(artKey){
+  var parts = artKey.split('-');
+  var artBase = parts[0];
+  var colorNum = parts[1]; // может быть undefined если нет цвета
+  var q = QUEUE[artBase] || {};
+  if(colorNum){
+    var paintDone = q['paint_'+colorNum] || 0;
+    var packDone = q['pack_'+colorNum] || 0;
+    return Math.max(0, paintDone - packDone);
+  } else {
+    // Без цвета — смотрим общий paint
+    var paintTotal = 0;
+    Object.keys(q).forEach(function(k){ if(k.indexOf('paint')===0) paintTotal+=q[k]||0; });
+    var packTotal = 0;
+    Object.keys(q).forEach(function(k){ if(k.indexOf('pack')===0) packTotal+=q[k]||0; });
+    return Math.max(0, paintTotal - packTotal);
+  }
+}
+
 function getAvailable(art, role){
   var q = QUEUE[art] || {};
   var prevRole = CHAIN_PREV[role];
