@@ -294,10 +294,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
 <div class="screen" id="sc-stock">
   <div class="topbar" style="gap:10px"><div class="back-btn" onclick="goScreen('sc-admin')">&#8249;</div><div style="flex:1"><div class="tb-title">Склад</div><div class="tb-sub">готовая продукция</div></div></div>
   <div class="scroll">
-    <div class="slbl">Топ артикулов</div>
-    <div id="stock-summary" style="margin:0 18px 12px;border-radius:var(--r);border:1px solid var(--border);overflow:hidden;background:var(--card)"></div>
     <div class="slbl">История по дням</div>
-    <div id="stock-list"></div><div class="spacer"></div>
+    <div id="stock-list"></div>
+    <div class="slbl">Итого по артикулам</div>
+    <div id="stock-summary"></div>
+    <div class="spacer"></div>
   </div>
 </div>
 <!-- МДФ -->
@@ -609,7 +610,13 @@ function startWorker(){
 function renderWorkContent(){
   var el=document.getElementById('work-content');el.innerHTML='';
   var r=CU.role;
-  var items=Object.values(NOMENCL).filter(function(i){return i.stages&&i.stages.some(function(s){return s.role===r;});});
+  // Для маляра — показывать изделия у которых есть цвета
+  var items;
+  if(r==='paint'){
+    items=Object.values(NOMENCL).filter(function(i){return i.colors&&i.colors.length>0;});
+  } else {
+    items=Object.values(NOMENCL).filter(function(i){return i.stages&&i.stages.some(function(s){return s.role===r;});});
+  }
   var lbl=document.createElement('div');lbl.className='slbl';lbl.textContent='Выбери артикул';el.appendChild(lbl);
   var tiles=document.createElement('div');tiles.className='tiles';
   if(!items.length){tiles.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;font-size:13px;color:var(--ter)">Нет изделий для этой роли</div>';el.appendChild(tiles);return;}
@@ -1035,33 +1042,68 @@ function renderTabWorkers(workers,mt,mp){
 
 function goStock(){
   goScreen('sc-stock');
-  var sumEl=document.getElementById('stock-summary');var listEl=document.getElementById('stock-list');
-  sumEl.innerHTML='<div style="padding:14px;text-align:center;color:var(--ter);font-size:12px">Загрузка...</div>';listEl.innerHTML='';
+  var sumEl=document.getElementById('stock-summary');
+  var listEl=document.getElementById('stock-list');
+  sumEl.innerHTML='<div style="padding:14px;text-align:center;color:var(--ter);font-size:12px">Загрузка...</div>';
+  listEl.innerHTML='';
+
+  // Загружаем склад и историю параллельно
   db.ref('stock').once('value').then(function(s){
-    var d=s.val()||{};sumEl.innerHTML='';
+    var d=s.val()||{};
+    sumEl.innerHTML='';
     var keys=Object.keys(d).sort(function(a,b){return (d[b].total||0)-(d[a].total||0);});
     if(!keys.length){sumEl.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--ter)">Склад пуст</div>';return;}
-    var max=d[keys[0]].total||1;var clrs=['#1A9E5C','#3333AA','#B8960C','#8B1A1A','#6B21A8','#1A5AAB'];
+    var max=d[keys[0]].total||1;
+    var clrs=['#0D5C3A','#3333AA','#7A4A00','#8B1A1A','#6B21A8','#1A5AAB','#0D5C6A','#5C3A0D'];
+    var bgClrs=['#E8F5EE','#EEEEF5','#FDF3E3','#FAEAEA','#F0EBF8','#E8F0FE','#E8F5F5','#F5EEE8'];
+    // Сетка карточек — компактные
+    var grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:4px 14px 12px';
     keys.forEach(function(art,i){
-      var qty=d[art].total||0;var pct=Math.round(qty/max*100);
-      var row=document.createElement('div');row.className='stock-row';
-      row.innerHTML='<div class="stock-rank'+(i<2?' top':'')+'">'+( i+1)+'</div><div class="stock-art">'+art+'</div>'
-        +'<div class="stock-bar-wrap"><div class="stock-bar" style="width:'+pct+'%;background:'+clrs[i%clrs.length]+'"></div></div>'
-        +'<div class="stock-qty">'+qty+'</div><div style="font-size:10px;color:var(--ter);flex-shrink:0">шт</div>';
-      sumEl.appendChild(row);
+      var qty=d[art].total||0;
+      var pct=Math.round(qty/max*100);
+      var ci=i%clrs.length;
+      var card=document.createElement('div');
+      card.style.cssText='border-radius:10px;padding:8px 8px 7px;border:1px solid '+bgClrs[ci]+';background:'+bgClrs[ci];
+      card.innerHTML='<div style="font-size:10px;font-weight:700;color:'+clrs[ci]+';letter-spacing:.03em;margin-bottom:3px">'+art+'</div>'
+        +'<div style="font-size:20px;font-weight:700;color:'+clrs[ci]+';letter-spacing:-.02em;line-height:1">'+qty+'</div>'
+        +'<div style="font-size:8px;color:'+clrs[ci]+';opacity:.7;margin-top:1px">шт</div>'
+        +'<div style="height:2px;background:rgba(0,0,0,.08);border-radius:1px;margin-top:5px;overflow:hidden">'
+        +'<div style="height:2px;border-radius:1px;width:'+pct+'%;background:'+clrs[ci]+'"></div></div>';
+      grid.appendChild(card);
     });
+    sumEl.appendChild(grid);
   });
+
+  // История по дням
   db.ref('ops').once('value').then(function(s){
     var all=s.val()||{};listEl.innerHTML='';
     var pUsers=USERS.filter(function(u){return u.role==='pack'||u.role==='wb';});
     Object.keys(all).sort().reverse().forEach(function(dk){
       var rows='';
-      pUsers.forEach(function(pu){var ud=all[dk][pu.id];if(!ud||!ud.entries)return;Object.values(ud.entries).forEach(function(op){if(op.brak>0&&op.pcs===0)return;rows+='<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:700;color:var(--accent);width:80px;flex-shrink:0">'+op.art+'</div><div style="flex:1"><div style="font-size:12px;color:var(--text)">'+pu.name+'</div><div style="font-size:10px;color:var(--sub)">'+op.time+'</div></div><div style="font-size:14px;font-weight:600;color:var(--green-v)">'+op.pcs+' шт</div></div>';});});
-      if(rows){var block=document.createElement('div');block.style.cssText='margin:0 18px 10px;border-radius:var(--r);border:1px solid var(--border);overflow:hidden;background:var(--card)';block.innerHTML='<div style="padding:8px 12px;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text)">'+new Date(dk+'T12:00:00').toLocaleDateString('ru',{day:'numeric',month:'long'})+'</div><div>'+rows+'</div>';listEl.appendChild(block);}
+      pUsers.forEach(function(pu){
+        var ud=all[dk][pu.id];if(!ud||!ud.entries)return;
+        Object.values(ud.entries).forEach(function(op){
+          if(op.brak>0&&op.pcs===0)return;
+          rows+='<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:0.5px solid var(--border)">'
+            +'<div style="font-size:11px;font-weight:700;color:var(--accent);width:72px;flex-shrink:0">'+op.art+'</div>'
+            +'<div style="flex:1;font-size:11px;color:var(--sub)">'+pu.name+'</div>'
+            +'<div style="font-size:13px;font-weight:600;color:var(--green-v)">'+op.pcs+' шт</div>'
+            +'<div style="font-size:10px;color:var(--ter);margin-left:4px">'+op.time+'</div></div>';
+        });
+      });
+      if(rows){
+        var block=document.createElement('div');
+        block.style.cssText='margin:0 14px 8px;border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;background:var(--card)';
+        var dl=new Date(dk+'T12:00:00').toLocaleDateString('ru',{day:'numeric',month:'long'});
+        block.innerHTML='<div style="padding:5px 12px;background:var(--bg);border-bottom:1px solid var(--border);font-size:10px;font-weight:600;color:var(--text)">'+dl+'</div><div>'+rows+'</div>';
+        listEl.appendChild(block);
+      }
     });
-    if(!listEl.children.length)listEl.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--ter)">Нет данных</div>';
+    if(!listEl.children.length) listEl.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--ter)">Нет данных</div>';
   });
 }
+
 
 function goMdf(){goScreen('sc-mdf');renderMdfSummary();renderMdfHistory();}
 function renderMdfSummary(){
