@@ -191,7 +191,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
   </div>
   <div class="mets mets-2">
     <div class="met mb" onclick="openMyLog()" style="cursor:pointer"><div class="mv" id="work-d">0</div><div class="ml">сделал &#9998;</div></div>
-    <div class="met mg"><div class="mv" id="work-e">0 &#8381;</div><div class="ml">заработал</div></div>
+    <div class="met mg"><div class="mv" id="work-e">0 ₽</div><div class="ml">заработал</div></div>
   </div>
   <div id="notif-bar-work" style="display:none" class="notif-bar" onclick="dismissNotif(this)">
     <div style="font-size:15px">&#128276;</div>
@@ -212,7 +212,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
   </div>
   <div class="mets mets-3">
     <div class="met mb" onclick="openMyLog()" style="cursor:pointer"><div class="mv" id="pack-d">0</div><div class="ml">упаковал &#9998;</div></div>
-    <div class="met mg"><div class="mv" id="pack-e">0 &#8381;</div><div class="ml">заработал</div></div>
+    <div class="met mg"><div class="mv" id="pack-e">0 ₽</div><div class="ml">заработал</div></div>
     <div class="met" style="background:var(--accent-l)"><div class="mv" id="pack-s" style="color:var(--accent)">0</div><div class="ml" style="color:#6666AA">на склад</div></div>
   </div>
   <div class="scroll">
@@ -224,12 +224,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
 <!-- WB -->
 <div class="screen" id="sc-wb">
   <div class="topbar">
-    <div><div class="tb-title" id="wb-name">Перепаковщик</div><div class="tb-sub">Возвраты WB &#183; 200 &#8381;/шт</div></div>
+    <div><div class="tb-title" id="wb-name">Перепаковщик</div><div class="tb-sub">Возвраты WB &#183; 200 ₽/шт</div></div>
     <div class="tb-av" id="wb-av" onclick="logout()"></div>
   </div>
   <div class="mets mets-3">
     <div class="met mb" onclick="openMyLog()" style="cursor:pointer"><div class="mv" id="wb-d">0</div><div class="ml">принято &#9998;</div></div>
-    <div class="met mg"><div class="mv" id="wb-e">0 &#8381;</div><div class="ml">заработал</div></div>
+    <div class="met mg"><div class="mv" id="wb-e">0 ₽</div><div class="ml">заработал</div></div>
     <div class="met mr"><div class="mv" id="wb-bad-cnt">0</div><div class="ml">брак</div></div>
   </div>
   <div class="scroll" style="padding:12px 18px 18px">
@@ -274,7 +274,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
   <div class="date-nav"><button class="dn-btn" onclick="teamDay(-1)">&#8249;</button><div><div class="dn-lbl" id="team-dlbl">Сегодня</div><div class="dn-sub" id="team-dsub"></div></div><button class="dn-btn" onclick="teamDay(1)">&#8250;</button></div>
   <div class="mets mets-3">
     <div class="met mb"><div class="mv" id="team-p">0</div><div class="ml">изделий</div></div>
-    <div class="met mg"><div class="mv" id="team-e">0 &#8381;</div><div class="ml">к выплате</div></div>
+    <div class="met mg"><div class="mv" id="team-e">0 ₽</div><div class="ml">к выплате</div></div>
     <div class="met mr"><div class="mv" id="team-b">0</div><div class="ml">брак</div></div>
   </div>
   <div class="scroll"><div id="team-workers" style="margin-top:8px"></div><div class="spacer"></div></div>
@@ -284,8 +284,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
   <div class="topbar" style="gap:10px"><div class="back-btn" onclick="goScreen('sc-admin')">&#8249;</div><div style="flex:1"><div class="tb-title">Табель</div><div class="tb-sub" id="tab-month-lbl"></div></div></div>
   <div class="scroll">
     <div class="tab-banner">
-      <div><div class="tab-lbl">Начислено</div><div class="tab-val" id="tab-tot">0 &#8381;</div></div>
-      <div style="text-align:right"><div class="tab-lbl">Выплачено</div><div class="tab-val" id="tab-paid2">0 &#8381;</div><div class="tab-debt" id="tab-debt"></div></div>
+      <div><div class="tab-lbl">Начислено</div><div class="tab-val" id="tab-tot">0 ₽</div></div>
+      <div style="text-align:right"><div class="tab-lbl">Выплачено</div><div class="tab-val" id="tab-paid2">0 ₽</div><div class="tab-debt" id="tab-debt"></div></div>
     </div>
     <div id="tab-workers"></div><div class="spacer"></div>
   </div>
@@ -391,7 +391,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
 </div></div>
 
 <div class="overlay" id="ov-wb-good" onclick="ovBg(event,'ov-wb-good')"><div class="sheet">
-  <div class="sh-handle"></div><div class="sh-title" style="color:var(--green)">&#10003; Годный — выбери артикул</div><div class="sh-sub">200 &#8381; за штуку &#8594; на склад</div>
+  <div class="sh-handle"></div><div class="sh-title" style="color:var(--green)">&#10003; Годный — выбери артикул</div><div class="sh-sub">200 ₽ за штуку &#8594; на склад</div>
   <div class="tiles" id="wb-good-tiles" style="padding:0;margin-bottom:14px"></div>
   <button class="btn-cancel" onclick="closeOv()">Отмена</button>
 </div></div>
@@ -1101,7 +1101,7 @@ function closeOv(){document.querySelectorAll('.overlay').forEach(function(o){o.s
 function ovBg(e,id){if(e.target===document.getElementById(id))closeOv();}
 function sv(id,v){var el=document.getElementById(id);if(el)el.textContent=v;}
 function sty(id,s){var el=document.getElementById(id);if(el)el.style.cssText=s;}
-function fmt(v){return (v||0).toLocaleString('ru')+' &#8381;';}
+function fmt(v){return (v||0).toLocaleString('ru')+' ₽';}
 function tdk(){return new Date().toISOString().slice(0,10);}
 function timeStr(){var n=new Date();return n.getHours()+':'+(n.getMinutes()<10?'0':'')+n.getMinutes();}
 function toast(txt,err){var tw=document.getElementById('tw');var tel=document.getElementById('t-el');var td=document.getElementById('t-dot');document.getElementById('t-txt').textContent=txt;tel.className='toast '+(err?'toast-r':'toast-g');td.className='toast-dot '+(err?'toast-dot-r':'toast-dot-g');tw.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(function(){tw.style.display='none';},3000);}
