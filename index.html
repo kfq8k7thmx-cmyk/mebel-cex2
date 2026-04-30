@@ -623,7 +623,7 @@ var INIT_NOMENCL={
 };
 
 var USERS=[{id:'admin',name:'Администратор',init:'АД',role:'admin',pin:'0000',avS:'background:var(--amber-l);color:var(--amber)'}];
-var ROLE={admin:'Администратор',cnc:'ЧПУ-оператор',carp:'Столяр',sand:'Шлифовщик',paint:'Маляр',pack:'Упаковщик',wb:'Перепаковщик WB'};
+var ROLE={admin:'Администратор',cnc:'ЧПУ-оператор',carp:'Столяр',sand:'Шлифовщик',paint:'Маляр',pack:'Упаковщик',wb:'Перепаковщик WB',master:'Мастер'};
 var AV_COLORS=['background:#EEEEF5;color:#3333AA','background:#E8F5EE;color:#0D5C3A','background:#FDF3E3;color:#7A4A00','background:#FAEAEA;color:#8B1A1A','background:#F0EBF8;color:#6B21A8','background:#E8F0FE;color:#1A5AAB'];
 var CL=['c1','c2','c3','c4','c5'];
 
@@ -658,7 +658,8 @@ function pk(k){if(pinBuf.length>=4)return;pinBuf+=k;updDots();if(pinBuf.length==
 function pb(){pinBuf=pinBuf.slice(0,-1);updDots();}
 function updDots(err){document.querySelectorAll('.pd').forEach(function(d,i){d.className='pd'+(i<pinBuf.length?' f':'')+(err?' err':'');});}
 function chkPin(){var u=USERS.find(function(u){return u.pin===pinBuf;});if(u){CU=u;pinBuf='';updDots();loginOk();}else{updDots(true);setTimeout(function(){pinBuf='';updDots();},700);}}
-function loginOk(){fbOff();var r=CU.role;if(r==='admin'){startAdmin();goScreen('sc-admin');}else if(r==='pack'){startPack();goScreen('sc-pack');}else if(r==='wb'){startWb();goScreen('sc-wb');}else{startWorker();goScreen('sc-work');}}
+function loginOk(){fbOff();var r=CU.role;if(r==='admin'){startAdmin();goScreen('sc-admin');}else if(r==='pack'){startPack();goScreen('sc-pack');}
+  else if(r==='master'){startMaster();goScreen('sc-work');}else if(r==='wb'){startWb();goScreen('sc-wb');}else{startWorker();goScreen('sc-work');}}
 function logout(){fbOff();CU=null;pinBuf='';updDots();goScreen('sc-login');}
 function goScreen(id){document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});document.getElementById(id).classList.add('active');}
 function fbOff(){fbL.forEach(function(r){try{r.off();}catch(e){}});fbL=[];}
@@ -842,16 +843,25 @@ function opSave(){
     if(CU.role==='pack'||CU.role==='wb'){db.ref('stock/'+opCtx.key).transaction(function(c){c=c||{total:0,lastDate:''};c.total+=opCtx.q;c.lastDate=dk;return c;});}
     // Обновить очередь
     var colorNum = opCtx.key.indexOf('-')>0 ? opCtx.key.split('-')[1] : null;
-    // Для столяра — ключ с индексом этапа
     var carpStageIdx = (CU.role==='carp' && opCtx.stageIdx!==undefined) ? opCtx.stageIdx : null;
-    updateQueue(opCtx.artBase, CU.role, opCtx.q, colorNum, carpStageIdx);
-    // Обновить локальную очередь
-    var qArt = QUEUE[opCtx.artBase] || {};
-    var qKey = CU.role;
-    if(colorNum) qKey = CU.role+'_'+colorNum;
-    if(carpStageIdx!==null) qKey = 'carp_stage_'+carpStageIdx;
-    qArt[qKey] = (qArt[qKey]||0) + opCtx.q;
-    QUEUE[opCtx.artBase] = qArt;
+
+    if(CU.role==='master' && opCtx.masterStageKey){
+      // Мастер — обновляем его собственный ключ
+      updateMasterQueue(opCtx.artBase, opCtx.masterStageKey, opCtx.q);
+      // Если упаковка — на склад
+      if(opCtx.masterStageKey==='pack'){
+        var dk2=tdk();
+        db.ref('stock/'+opCtx.key).transaction(function(c){c=c||{total:0,lastDate:''};c.total+=opCtx.q;c.lastDate=dk2;return c;});
+      }
+    } else {
+      updateQueue(opCtx.artBase, CU.role, opCtx.q, colorNum, carpStageIdx);
+      var qArt = QUEUE[opCtx.artBase] || {};
+      var qKey = CU.role;
+      if(colorNum) qKey = CU.role+'_'+colorNum;
+      if(carpStageIdx!==null) qKey = 'carp_stage_'+carpStageIdx;
+      qArt[qKey] = (qArt[qKey]||0) + opCtx.q;
+      QUEUE[opCtx.artBase] = qArt;
+    }
     toast(opCtx.key+' · '+opCtx.q+' шт · '+fmt(e),false);closeOv();
     // Перерендерить плитки с обновлёнными очередями
     setTimeout(renderWorkContent, 300);
@@ -1131,6 +1141,346 @@ function loadActiveNotif(zone){
   }).catch(function(){});
 }
 function dismissNotif(el){el.style.display='none';if(el.dataset&&el.dataset.key)db.ref('notifications/'+el.dataset.key+'/active').set(false);}
+
+
+function startMaster(){
+  sv('work-name','Ассалам алайкум, '+CU.name);
+  sv('work-role','Мастер');
+  sty('work-av',CU.avS);sv('work-av',CU.init);
+  loadBrakAlerts();loadActiveNotif('work');
+  loadQueue(function(){ renderMasterContent(); });
+  var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
+  ref.on('value',function(s){var d=s.val()||{p:0,e:0};sv('work-d',d.p||0);sv('work-e',fmt(d.e||0));});
+  fbL.push(ref);
+  var qRef=db.ref('queue/'+tdk());
+  qRef.on('value',function(snap){
+    QUEUE=snap.val()||{};
+    var sc=document.getElementById('sc-work');
+    if(sc&&sc.classList.contains('active')) renderMasterContent();
+  });
+  fbL.push(qRef);
+  // Слушать брак от WB
+  var bRef=db.ref('brak');
+  bRef.on('value',function(snap){
+    renderWbBrakForMaster(snap.val()||{});
+  });
+  fbL.push(bRef);
+}
+
+// Получить сколько мастер сделал данного этапа для артикула сегодня
+function getMasterDone(art, stageKey){
+  var q=QUEUE[art]||{};
+  return q['master_'+stageKey]||0;
+}
+
+// Обновить очередь мастера
+function updateMasterQueue(art, stageKey, qty){
+  db.ref('queue/'+tdk()+'/'+art+'/master_'+stageKey).transaction(function(c){return (c||0)+qty;});
+  var qArt=QUEUE[art]||{};
+  qArt['master_'+stageKey]=(qArt['master_'+stageKey]||0)+qty;
+  QUEUE[art]=qArt;
+}
+
+function renderMasterContent(){
+  var el=document.getElementById('work-content');el.innerHTML='';
+
+  // Для каждого артикула показываем его прогресс по этапам
+  var items=Object.values(NOMENCL);
+  if(!items.length){
+    el.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--ter)">Нет изделий в номенклатуре</div>';
+    return;
+  }
+
+  // ЭТАПЫ мастера в порядке
+  var STAGES=[
+    {key:'sand',   label:'Шлифовка',      prev:'cnc',           color:'#3333AA', bg:'#EEEEF5'},
+    {key:'assem',  label:'Стяжки / лепка',prev:'master_sand',   color:'#7A4A00', bg:'#FDF3E3'},
+    {key:'paint',  label:'Покраска',       prev:'master_assem',  color:'#0D5C3A', bg:'#E8F5EE', hasColors:true},
+    {key:'pack',   label:'Упаковка',       prev:'master_paint',  color:'#6B21A8', bg:'#F0EBF8', isLast:true}
+  ];
+
+  items.forEach(function(item){
+    // Проверить есть ли для этого артикула работа мастера
+    var hasSand=item.stages&&item.stages.some(function(s){return s.role==='sand';});
+    var hasPaint=item.colors&&item.colors.length>0;
+    var hasPack=item.stages&&item.stages.some(function(s){return s.role==='pack';});
+    if(!hasSand&&!hasPaint&&!hasPack) return;
+
+    // Заголовок артикула
+    var artHead=document.createElement('div');
+    artHead.style.cssText='padding:8px 18px 4px;font-size:10px;font-weight:700;color:var(--ter);letter-spacing:.1em;text-transform:uppercase';
+    artHead.textContent=item.art;
+    el.appendChild(artHead);
+
+    var q=QUEUE[item.art]||{};
+    var cncDone=q['cnc']||0;
+
+    // Считаем прогресс по каждому этапу
+    var sandDone=getMasterDone(item.art,'sand');
+    var assembDone=getMasterDone(item.art,'assem');
+    // Покраска — суммируем по цветам
+    var paintDone=0;
+    Object.keys(q).forEach(function(k){if(k.indexOf('master_paint')===0)paintDone+=(q[k]||0);});
+    var packDone=0;
+    Object.keys(q).forEach(function(k){if(k.indexOf('master_pack')===0)packDone+=(q[k]||0);});
+
+    // Нарисовать 4 блока-шага
+    var stepsWrap=document.createElement('div');
+    stepsWrap.style.cssText='margin:0 18px 10px;border-radius:var(--r);border:1px solid var(--border);overflow:hidden;background:var(--card)';
+
+    STAGES.forEach(function(stage,si){
+      // Сколько доступно для этого этапа
+      var available=0;
+      var donePcs=0;
+      var rate=0;
+      var stg;
+
+      if(stage.key==='sand'){
+        stg=item.stages&&item.stages.find(function(s){return s.role==='sand';});
+        if(!stg)return;
+        available=Math.max(0,cncDone-sandDone);
+        donePcs=sandDone;
+        rate=stg.rate;
+      } else if(stage.key==='assem'){
+        // Ставки стяжек берём из столяра (carp) но для мастера
+        var assemStages=item.stages?item.stages.filter(function(s){return s.role==='carp';}):[];
+        if(!assemStages.length)return;
+        available=Math.max(0,sandDone-assembDone);
+        donePcs=assembDone;
+        rate=assemStages.reduce(function(sum,s){return sum+s.rate;},0); // сумма всех этапов
+      } else if(stage.key==='paint'){
+        if(!item.colors||!item.colors.length)return;
+        available=Math.max(0,assembDone-paintDone);
+        donePcs=paintDone;
+        rate=0; // зависит от цвета
+      } else if(stage.key==='pack'){
+        stg=item.stages&&item.stages.find(function(s){return s.role==='pack';});
+        if(!stg)return;
+        available=Math.max(0,paintDone-packDone);
+        donePcs=packDone;
+        rate=stg.rate;
+      }
+
+      var isDone=available===0&&donePcs>0;
+      var isLocked=available===0&&donePcs===0&&cncDone===0;
+      var isActive=available>0;
+
+      var row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:0.5px solid var(--border);'
+        +(isActive?'cursor:pointer;background:'+stage.bg+';':'opacity:'+(isDone?'0.6':'0.35')+';');
+
+      var icon=isDone?'✓':isActive?'›':'·';
+      var iconColor=isDone?stage.color:isActive?stage.color:'var(--ter)';
+
+      row.innerHTML='<div style="width:24px;height:24px;border-radius:50%;background:'+(isDone?stage.bg:isActive?stage.bg:'var(--bg)')+';border:1.5px solid '+(isActive||isDone?stage.color:'var(--border)')+';display:flex;align-items:center;justify-content:center;font-size:13px;color:'+iconColor+';flex-shrink:0;font-weight:700">'+icon+'</div>'
+        +'<div style="flex:1">'
+        +'<div style="font-size:13px;font-weight:600;color:'+(isActive?stage.color:isDone?'var(--sub)':'var(--ter)')+'">'+stage.label+'</div>'
+        +'<div style="font-size:10px;color:var(--ter);margin-top:1px">'
+        +(isDone?'выполнено: '+donePcs+' шт':isActive?'доступно: '+available+' шт'+(rate>0?' · '+fmt(rate):''):'ожидание предыдущего этапа')
+        +'</div>'
+        +'</div>'
+        +(isActive?'<div style="font-size:11px;font-weight:600;color:'+stage.color+'">'+available+' шт</div>':'');
+
+      if(isActive){
+        row.addEventListener('click',(function(item,stageData,avail,dp){
+          return function(){
+            if(stageData.key==='sand'){
+              var sg=item.stages.find(function(s){return s.role==='sand';});
+              openMasterOp(item.art,stageData.label,sg.rate,avail,'sand',item.art,null);
+            } else if(stageData.key==='assem'){
+              openMasterAssem(item,avail);
+            } else if(stageData.key==='paint'){
+              openMasterPaint(item,avail);
+            } else if(stageData.key==='pack'){
+              var sg=item.stages.find(function(s){return s.role==='pack';});
+              openMasterOp(item.art,stageData.label,sg.rate,avail,'pack',item.art,null);
+            }
+          };
+        })(item,stage,available,donePcs));
+      }
+      stepsWrap.appendChild(row);
+    });
+
+    el.appendChild(stepsWrap);
+  });
+
+  // Секция реставрации WB
+  var brakData={};
+  db.ref('brak').once('value').then(function(snap){
+    renderWbBrakForMaster(snap.val()||{});
+  });
+}
+
+function openMasterOp(artKey,stageLabel,rate,maxQty,stageKey,artBase,colorNum){
+  opCtx={
+    key:artKey,nm:stageLabel+' ('+artKey+')',rate:rate,yld:1,artBase:artBase,
+    q:1,b:0,maxQty:maxQty,stageIdx:null,
+    masterStageKey:stageKey,masterColorNum:colorNum
+  };
+  sv('op-title',artKey);
+  sv('op-sub',stageLabel+' · '+fmt(rate)+' · макс: '+maxQty+' шт');
+  sv('op-q',1);sv('op-b',0);updOpEarn();openOv('ov-op');
+}
+
+function openMasterAssem(item,avail){
+  // Показать этапы сборки как у столяра
+  var assemStages=item.stages.filter(function(s){return s.role==='carp';});
+  var ov=mkTmpOv('ov-master-assem');
+  var sheet=ov.querySelector('.sheet');
+  var q=QUEUE[item.art]||{};
+  var sandDone=getMasterDone(item.art,'sand');
+
+  function render(){
+    sheet.innerHTML='';
+    var hd=document.createElement('div');hd.className='sh-handle';sheet.appendChild(hd);
+    var ti=document.createElement('div');ti.className='sh-title';ti.textContent=item.art+' — Сборка';sheet.appendChild(ti);
+    var sb=document.createElement('div');sb.className='sh-sub';sb.textContent='Доступно после шлифовки: '+sandDone+' шт';sheet.appendChild(sb);
+
+    assemStages.forEach(function(s,i){
+      var stageKey='assem_'+i;
+      var done=getMasterDone(item.art,stageKey);
+      var remaining=Math.max(0,sandDone-done);
+      var isDone=done>=sandDone&&sandDone>0;
+
+      var row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 16px;margin-bottom:8px;border-radius:var(--rs);border:1px solid '+(isDone?'var(--border)':'var(--amber)')+';background:'+(isDone?'var(--bg)':'#FDF3E3')+';'+(isDone?'opacity:.5;':'cursor:pointer;');
+      row.innerHTML='<div><div style="font-size:14px;font-weight:600;color:'+(isDone?'var(--sub)':'var(--amber)')+'">'+s.nm+'</div>'
+        +'<div style="font-size:11px;color:var(--ter);margin-top:3px">'
+        +(isDone?'✓ выполнено: '+done+' шт · '+fmt(s.rate):'доступно: '+remaining+' шт · '+fmt(s.rate))
+        +'</div></div>'
+        +(isDone?'<div style="font-size:20px;color:var(--green-v)">✓</div>':'<div style="font-size:22px;color:var(--amber)">›</div>');
+
+      if(!isDone){
+        row.addEventListener('click',(function(sg,sk,max){return function(){
+          rmTmpOv('ov-master-assem');
+          opCtx={key:item.art,nm:sg.nm+' ('+item.art+')',rate:sg.rate,yld:1,artBase:item.art,
+            q:1,b:0,maxQty:max,stageIdx:null,masterStageKey:sk,masterColorNum:null};
+          sv('op-title',item.art);sv('op-sub',sg.nm+' · '+fmt(sg.rate)+' · макс: '+max+' шт');
+          sv('op-q',1);sv('op-b',0);updOpEarn();openOv('ov-op');
+        };})(s,'assem_'+i,remaining));
+      }
+      sheet.appendChild(row);
+    });
+
+    var cl=document.createElement('button');cl.className='btn-cancel';cl.textContent='Закрыть';
+    cl.addEventListener('click',function(){rmTmpOv('ov-master-assem');});
+    sheet.appendChild(cl);
+  }
+  render();
+
+  var qRef=db.ref('queue/'+tdk()+'/'+item.art);
+  qRef.on('value',function(snap){QUEUE[item.art]=snap.val()||{};render();});
+  ov.remove=function(){qRef.off();ov.parentNode&&ov.parentNode.removeChild(ov);};
+}
+
+function openMasterPaint(item,avail){
+  var ov=mkTmpOv('ov-master-paint');
+  var colorClasses=['c1','c2','c3','c4','c5'];
+  var html='<div class="sh-handle"></div><div class="sh-title">'+item.art+' — Покраска</div>'
+    +'<div class="sh-sub">Доступно: '+avail+' шт</div><div class="color-tiles">';
+  item.colors.forEach(function(c,i){
+    html+='<div class="ctile '+colorClasses[i%5]+'" data-num="'+c.num+'" data-nm="'+c.nm+'" data-rate="'+c.rate+'">'
+      +'<div class="ctile-num">'+c.num+'</div><div class="ctile-nm">'+c.nm+'</div></div>';
+  });
+  html+='</div><button class="btn-cancel" id="mpaint-close">Отмена</button>';
+  ov.querySelector('.sheet').innerHTML=html;
+  setTimeout(function(){
+    ov.querySelectorAll('.ctile').forEach(function(el){
+      el.addEventListener('click',function(){
+        var num=el.dataset.num;var nm=el.dataset.nm;var rate=parseInt(el.dataset.rate);
+        rmTmpOv('ov-master-paint');
+        opCtx={key:item.art+'-'+num,nm:nm+' покраска ('+item.art+')',rate:rate,yld:1,
+          artBase:item.art,q:1,b:0,maxQty:avail,stageIdx:null,
+          masterStageKey:'paint_'+num,masterColorNum:num};
+        sv('op-title',item.art+'-'+num);sv('op-sub',nm+' · '+fmt(rate)+' · макс: '+avail+' шт');
+        sv('op-q',1);sv('op-b',0);updOpEarn();openOv('ov-op');
+      });
+    });
+    var cl=ov.querySelector('#mpaint-close');
+    if(cl)cl.addEventListener('click',function(){rmTmpOv('ov-master-paint');});
+  },30);
+}
+
+// Реставрация WB — показать брак
+function renderWbBrakForMaster(data){
+  var el=document.getElementById('work-content');
+  if(!el)return;
+  // Убрать старую секцию реставрации
+  var old=el.querySelector('#master-wb-section');
+  if(old)old.remove();
+
+  var active=Object.keys(data).filter(function(k){return !data[k].fixed;});
+  if(!active.length)return;
+
+  var section=document.createElement('div');section.id='master-wb-section';
+  var lbl=document.createElement('div');lbl.className='slbl';lbl.textContent='Реставрация WB';
+  section.appendChild(lbl);
+
+  active.forEach(function(k){
+    var b=data[k];
+    var card=document.createElement('div');
+    card.style.cssText='margin:0 18px 8px;background:var(--red-l);border-radius:var(--rs);border-left:3px solid var(--red-v);padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer';
+    card.innerHTML='<div style="flex:1">'
+      +'<div style="font-size:13px;font-weight:600;color:var(--red)">'+(b.art||b.nm)+' · '+b.qty+' шт</div>'
+      +'<div style="font-size:11px;color:#C0392B;margin-top:2px">'+(b.reason||'Возврат WB')+' · от '+b.from+'</div>'
+      +'</div>'
+      +'<button class="wb-fix-btn" style="padding:6px 12px;background:var(--red);color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">Исправить</button>';
+    card.querySelector('.wb-fix-btn').addEventListener('click',(function(bk,brak){
+      return function(e){
+        e.stopPropagation();
+        openWbRestoration(bk,brak);
+      };
+    })(k,b));
+    section.appendChild(card);
+  });
+  el.appendChild(section);
+}
+
+function openWbRestoration(brakKey,brak){
+  var ov=mkTmpOv('ov-wb-restore');
+  var sheet=ov.querySelector('.sheet');
+  var qty=brak.qty;var restored=0;
+
+  function render(){
+    sheet.innerHTML='';
+    var hd=document.createElement('div');hd.className='sh-handle';sheet.appendChild(hd);
+    var ti=document.createElement('div');ti.className='sh-title';ti.style.color='var(--green)';ti.textContent='Реставрация: '+(brak.art||brak.nm);sheet.appendChild(ti);
+    var sb=document.createElement('div');sb.className='sh-sub';sb.textContent='Нужно восстановить: '+qty+' шт · ставка 300 ₽/шт';sheet.appendChild(sb);
+
+    var pillWrap=document.createElement('div');pillWrap.className='pill-row pill-g';pillWrap.style.marginBottom='14px';
+    pillWrap.innerHTML='<div class="pill-nm pill-nm-g">Исправлено</div>'
+      +'<div class="stpr"><button class="stbtn sg" id="wb-r-minus">&#8722;</button><span class="sv sv-g" id="wb-r-qty">'+qty+'</span><button class="stbtn sg" id="wb-r-plus">+</button></div>';
+    sheet.appendChild(pillWrap);
+
+    var earnEl=document.createElement('div');earnEl.className='earn-txt';earnEl.textContent=qty+' шт × 300 ₽ = '+fmt(qty*300);sheet.appendChild(earnEl);
+
+    var saveBtn=document.createElement('button');saveBtn.className='btn-primary btn-green';saveBtn.textContent='Отправить на склад';sheet.appendChild(saveBtn);
+    var cancelBtn=document.createElement('button');cancelBtn.className='btn-cancel';cancelBtn.textContent='Отмена';sheet.appendChild(cancelBtn);
+
+    sheet.querySelector('#wb-r-minus').addEventListener('click',function(){qty=Math.max(1,qty-1);render();});
+    sheet.querySelector('#wb-r-plus').addEventListener('click',function(){qty=Math.min(brak.qty,qty+1);render();});
+    saveBtn.addEventListener('click',function(){
+      var earn=qty*300;var dk=tdk();var ts=timeStr();
+      var artKey=brak.art||brak.nm;
+      db.ref('ops/'+dk+'/'+CU.id+'/entries').push({
+        art:artKey,artBase:artKey,nm:'Реставрация WB',stage:'Мастер',
+        pcs:qty,earn:earn,brak:0,time:ts
+      });
+      db.ref('ops/'+dk+'/'+CU.id+'/summary').transaction(function(c){
+        c=c||{p:0,e:0,b:0};c.p+=qty;c.e+=earn;return c;
+      });
+      db.ref('stock/'+artKey).transaction(function(c){
+        c=c||{total:0,lastDate:''};c.total+=qty;c.lastDate=dk;return c;
+      });
+      db.ref('brak/'+brakKey+'/fixed').set(true);
+      toast(artKey+' · '+qty+' шт → склад · '+fmt(earn),false);
+      rmTmpOv('ov-wb-restore');
+    });
+    cancelBtn.addEventListener('click',function(){rmTmpOv('ov-wb-restore');});
+  }
+  render();
+}
+
 
 function startAdmin(){
   var days=['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
