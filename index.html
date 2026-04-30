@@ -524,7 +524,10 @@ function loadQueue(cb){
       QUEUE = snap.val() || {};
       // Обновить плитки если экран активен
       var sc = document.getElementById('sc-work');
-      if(sc && sc.classList.contains('active')) renderWorkContent();
+      if(sc && sc.classList.contains('active')){
+        if(CU && CU.role==='master') renderMasterContent();
+        else renderWorkContent();
+      }
       var sp = document.getElementById('sc-pack');
       if(sp && sp.classList.contains('active')) renderPackTiles();
     });
@@ -1152,13 +1155,6 @@ function startMaster(){
   var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
   ref.on('value',function(s){var d=s.val()||{p:0,e:0};sv('work-d',d.p||0);sv('work-e',fmt(d.e||0));});
   fbL.push(ref);
-  var qRef=db.ref('queue/'+tdk());
-  qRef.on('value',function(snap){
-    QUEUE=snap.val()||{};
-    var sc=document.getElementById('sc-work');
-    if(sc&&sc.classList.contains('active')) renderMasterContent();
-  });
-  fbL.push(qRef);
   // Слушать брак от WB
   var bRef=db.ref('brak');
   bRef.on('value',function(snap){
