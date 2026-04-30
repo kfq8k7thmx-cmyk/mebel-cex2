@@ -476,9 +476,21 @@ var CHAIN_PREV = {carp:'cnc', sand:'cnc', paint:'sand', pack:'paint'};
 var CHAIN_LABEL = {carp:'от ЧПУ', sand:'от ЧПУ', paint:'от шлифовки', pack:'от маляра'};
 
 function loadQueue(cb){
+  // Сначала загружаем актуальные данные
   db.ref('queue/'+tdk()).once('value').then(function(s){
     QUEUE = s.val() || {};
     if(cb) cb();
+    // Подписываемся на обновления в реальном времени
+    var qRef = db.ref('queue/'+tdk());
+    qRef.on('value', function(snap){
+      QUEUE = snap.val() || {};
+      // Обновить плитки если экран активен
+      var sc = document.getElementById('sc-work');
+      if(sc && sc.classList.contains('active')) renderWorkContent();
+      var sp = document.getElementById('sc-pack');
+      if(sp && sp.classList.contains('active')) renderPackTiles();
+    });
+    fbL.push(qRef);
   }).catch(function(){ if(cb) cb(); });
 }
 
