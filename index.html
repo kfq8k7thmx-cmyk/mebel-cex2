@@ -662,7 +662,7 @@ function pb(){pinBuf=pinBuf.slice(0,-1);updDots();}
 function updDots(err){document.querySelectorAll('.pd').forEach(function(d,i){d.className='pd'+(i<pinBuf.length?' f':'')+(err?' err':'');});}
 function chkPin(){var u=USERS.find(function(u){return u.pin===pinBuf;});if(u){CU=u;pinBuf='';updDots();loginOk();}else{updDots(true);setTimeout(function(){pinBuf='';updDots();},700);}}
 function loginOk(){fbOff();var r=CU.role;if(r==='admin'){startAdmin();goScreen('sc-admin');}else if(r==='pack'){startPack();goScreen('sc-pack');}
-  else if(r==='master'){startMaster();goScreen('sc-work');}else if(r==='wb'){startWb();goScreen('sc-wb');}else{startWorker();goScreen('sc-work');}}
+  else if(r==='master'||(ROLE[r]&&ROLE[r]==='Мастер')){startMaster();goScreen('sc-work');}else if(r==='wb'){startWb();goScreen('sc-wb');}else{startWorker();goScreen('sc-work');}}
 function logout(){fbOff();CU=null;pinBuf='';updDots();goScreen('sc-login');}
 function goScreen(id){document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});document.getElementById(id).classList.add('active');}
 function fbOff(){fbL.forEach(function(r){try{r.off();}catch(e){}});fbL=[];}
@@ -1165,6 +1165,13 @@ function startMaster(){
 }
 
 // Получить сколько мастер сделал данного этапа для артикула сегодня
+
+// Проверить является ли роль ролью мастера
+function isMasterRole(role){
+  if(role==='master') return true;
+  if(ROLE[role]&&ROLE[role]==='Мастер') return true;
+  return false;
+}
 function getMasterDone(art, stageKey){
   var q=QUEUE[art]||{};
   // Для ключей с цветом (master_stage_2_1) суммируем все цвета
@@ -1192,7 +1199,7 @@ function renderMasterContent(){
 
   // Найти все артикулы где есть этапы с role='master'
   var items=Object.values(NOMENCL).filter(function(i){
-    return i.stages&&i.stages.some(function(s){return s.role==='master';});
+    return i.stages&&i.stages.some(function(s){return isMasterRole(s.role);});
   });
 
   if(!items.length){
@@ -1205,7 +1212,7 @@ function renderMasterContent(){
     var cncDone=q['cnc']||0;
 
     // Все этапы мастера для этого артикула по порядку
-    var masterStages=item.stages.filter(function(s){return s.role==='master';});
+    var masterStages=item.stages.filter(function(s){return isMasterRole(s.role);});
 
     // Заголовок артикула
     var artHead=document.createElement('div');
