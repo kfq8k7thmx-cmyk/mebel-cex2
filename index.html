@@ -637,8 +637,19 @@ function renderWorkContent(){
       t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">покраска</div>'+availBadge;
       t.onclick=(function(it,av){return function(){ if(av===0){toast('Нет изделий от шлифовщика',true);return;} openColorPicker(it);};})(item,avail);
     } else if(r==='carp'){
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+stgs.length+' этапа</div>'+availBadge;
-      t.onclick=(function(it,av){return function(){ if(av===0){toast('Нет изделий от ЧПУ',true);return;} openCarpStages(it);};})(item,avail);
+      // Проверить все ли этапы выполнены
+      var q2=QUEUE[item.art]||{};
+      var carpStgs=stgs; // уже отфильтрованы для carp
+      var allCarpDone=avail>0&&carpStgs.every(function(s,i){return (q2['carp_stage_'+i]||0)>=avail;});
+      if(allCarpDone){
+        t.innerHTML='<div class="tile-art" style="color:var(--ter)">'+item.art+'</div><div class="tile-info">все этапы ✓</div>';
+        t.style.opacity='0.5';t.style.cursor='default';
+      } else {
+        var carpDoneCnt=carpStgs.filter(function(s,i){return (q2['carp_stage_'+i]||0)>=avail&&avail>0;}).length;
+        t.innerHTML='<div class="tile-art">'+item.art+'</div>'
+          +'<div class="tile-info">'+carpDoneCnt+'/'+carpStgs.length+' этапов ✓</div>'+availBadge;
+        t.onclick=(function(it,av){return function(){ if(av===0){toast('Нет изделий от ЧПУ',true);return;} openCarpStages(it);};})(item,avail);
+      }
     } else {
       var stg=stgs[0];
       t.innerHTML='<div class="tile-art">'+item.art+'</div>'+(r==='cnc'?'<div class="tile-info">'+item.yld+' шт/лист</div>':'')+'<div class="tile-info">'+fmt(stg.rate)+'</div>'+availBadge;
@@ -667,74 +678,76 @@ function pickColor(art,num,nm,rate){
   openOp(art+'-'+num,nm+' ('+art+')',rate,1,art,avail);
 }
 
+
 function openCarpStages(item){
   var stgs=item.stages.filter(function(s){return s.role==='carp';});
-  var avail=getAvailable(item.art,'carp'); // сколько от ЧПУ
+  var avail=getAvailable(item.art,'carp');
   var q=QUEUE[item.art]||{};
   var ov=mkTmpOv('ov-carp-tmp');
   var sheet=ov.querySelector('.sheet');
 
-  function renderCarpSheet(){
-    var html='<div class="sh-handle"></div>'
-      +'<div class="sh-title">'+item.art+'</div>'
-      +'<div class="sh-sub" style="display:flex;justify-content:space-between;align-items:center">'
-      +'<span>Этапы столяра</span>'
-      +'<span style="background:var(--accent-l);color:var(--accent);font-size:11px;font-weight:600;padding:3px 10px;border-radius:8px">'+avail+' шт от ЧПУ</span>'
-      +'</div>';
+  function render(){
+    sheet.innerHTML='';
+    // Заголовок
+    var hd=document.createElement('div');hd.className='sh-handle';sheet.appendChild(hd);
+    var ti=document.createElement('div');ti.className='sh-title';ti.textContent=item.art;sheet.appendChild(ti);
+    var sb=document.createElement('div');sb.className='sh-sub';
+    sb.innerHTML='<span>Этапы столяра</span><span style="background:var(--accent-l);color:var(--accent);font-size:11px;font-weight:600;padding:3px 10px;border-radius:8px">'+avail+' шт от ЧПУ</span>';
+    sb.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px';
+    sheet.appendChild(sb);
+
+    // Проверить все ли этапы выполнены
+    var allDone=stgs.every(function(s,i){return (q['carp_stage_'+i]||0)>=avail&&avail>0;});
 
     stgs.forEach(function(s,i){
-      // Проверяем сколько уже записано по этому этапу сегодня
-      var stageKey='carp_stage_'+i; // уникальный ключ для каждого этапа
-      var donePcs=q[stageKey]||0;
-      var isDone=donePcs>=avail&&avail>0;
-      var remaining=Math.max(0,avail-donePcs);
+      var done=q['carp_stage_'+i]||0;
+      var isDone=done>=avail&&avail>0;
+      var remaining=Math.max(0,avail-done);
 
-      if(isDone){
-        // Выполнен — серый, недоступен
-        html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;margin-bottom:8px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--border);opacity:.5">'
-          +'<div><div style="font-size:14px;font-weight:500;color:var(--sub)">'+s.nm+'</div>'
-          +'<div style="font-size:11px;color:var(--ter);margin-top:3px">Выполнено: '+donePcs+' шт</div></div>'
-          +'<div style="font-size:13px;font-weight:600;color:var(--green-v)">✓ готово</div>'
-          +'</div>';
-      } else {
-        // Доступен
-        html+='<div class="stage-item carp-stage-btn" style="flex-direction:column;align-items:flex-start;gap:4px" data-art="'+item.art+'" data-nm="'+s.nm+'" data-rate="'+s.rate+'" data-idx="'+i+'" data-max="'+remaining+'">';
-          +'<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'
-          +'<div class="stage-nm">'+s.nm+'</div>'
-          +'<div class="stage-rate">'+fmt(s.rate)+'</div>'
-          +'</div>'
-          +'<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'
-          +(donePcs>0
-            ?'<div style="font-size:10px;color:var(--amber)">сделано '+donePcs+' шт · осталось '+remaining+' шт</div>'
-            :'<div style="font-size:10px;color:var(--sub)">доступно: '+avail+' шт</div>')
-          +'</div>'
-          +'</div>';
+      var row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:14px 16px;margin-bottom:8px;border-radius:var(--rs);border:1px solid '+(isDone?'var(--border)':'var(--accent)')+';background:'+(isDone?'var(--bg)':'var(--accent-l)')+';'+(isDone?'opacity:.5;':'cursor:pointer;');
+
+      row.innerHTML='<div>'
+        +'<div style="font-size:14px;font-weight:600;color:'+(isDone?'var(--sub)':'var(--accent)')+'">'+s.nm+'</div>'
+        +'<div style="font-size:11px;color:'+(isDone?'var(--ter)':'var(--sub)')+';margin-top:3px">'
+        +(isDone?'✓ выполнено: '+done+' шт':'доступно: '+remaining+' шт · '+fmt(s.rate))
+        +'</div>'
+        +'</div>'
+        +(isDone
+          ?'<div style="font-size:20px;color:var(--green-v)">✓</div>'
+          :'<div style="font-size:22px;color:var(--accent)">›</div>'
+        );
+
+      if(!isDone){
+        row.addEventListener('click',(function(stg,stgIdx,max){return function(){
+          rmTmpOv('ov-carp-tmp');
+          opCtx.stageIdx=stgIdx;
+          openOp(item.art,stg.nm+' ('+item.art+')',stg.rate,1,item.art,max);
+        };})(s,i,remaining));
       }
+      sheet.appendChild(row);
     });
 
-    sheet.innerHTML=html;
+    // Кнопка закрыть
+    var cl=document.createElement('button');cl.className='btn-cancel';cl.textContent='Закрыть';
+    cl.addEventListener('click',function(){rmTmpOv('ov-carp-tmp');});
+    sheet.appendChild(cl);
   }
-  renderCarpSheet();
-  // Добавить обработчики кликов
-  setTimeout(function(){
-    var closeBtn=ov.querySelector('#carp-close-btn');if(closeBtn)closeBtn.addEventListener('click',function(){rmTmpOv('ov-carp-tmp');});
-    var btns=ov.querySelectorAll('.carp-stage-btn');
-    btns.forEach(function(btn){
-      btn.addEventListener('click',function(){
-        var art=btn.dataset.art;var nm=btn.dataset.nm;
-        var rate=parseInt(btn.dataset.rate);var idx=parseInt(btn.dataset.idx);var max=parseInt(btn.dataset.max);
-        pickCarpStageIdx(art,nm,rate,idx,max);
-      });
-    });
-  },50);
+
+  render();
+
+  // Слушать обновления очереди чтобы плашки обновлялись в реальном времени
+  var qRef=db.ref('queue/'+tdk()+'/'+item.art);
+  qRef.on('value',function(snap){
+    QUEUE[item.art]=snap.val()||{};q=QUEUE[item.art];render();
+  });
+  // Отписаться при закрытии
+  ov.dataset.qref='yes';
+  var origRemove=ov.remove.bind(ov);
+  ov.remove=function(){qRef.off();origRemove();};
 }
 
-function pickCarpStageIdx(art,nm,rate,stageIdx,maxQty){
-  rmTmpOv('ov-carp-tmp');
-  // Передаём stageIdx чтобы обновить правильный ключ в queue
-  opCtx.stageIdx=stageIdx;
-  openOp(art,nm+' ('+art+')',rate,1,art,maxQty);
-}
+
 function pickCarpStage(art,nm,rate){
   rmTmpOv('ov-carp-tmp');
   var avail = getAvailable(art, 'carp');
