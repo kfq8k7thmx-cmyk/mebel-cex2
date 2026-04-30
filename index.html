@@ -471,6 +471,32 @@ var db=firebase.database();
 
 
 // ===== СИСТЕМА ОЧЕРЕДИ =====
+
+var MDF_STOCK = {}; // {typeKey: qty}
+var MDF_TOTAL = 0;
+
+function loadMdfThenRender(){
+  db.ref('mdf/stock').once('value').then(function(s){
+    MDF_STOCK = s.val() || {};
+    MDF_TOTAL = Object.values(MDF_STOCK).reduce(function(sum,v){return sum+(v||0);},0);
+    renderWorkContent();
+    // Подписаться на изменения МДФ в реальном времени
+    var mRef = db.ref('mdf/stock');
+    mRef.on('value', function(snap){
+      MDF_STOCK = snap.val() || {};
+      MDF_TOTAL = Object.values(MDF_STOCK).reduce(function(sum,v){return sum+(v||0);},0);
+      renderWorkContent();
+    });
+    fbL.push(mRef);
+  }).catch(function(){ renderWorkContent(); });
+}
+
+// Сколько штук может сделать ЧПУ для данного артикула с учётом МДФ
+function getCncMax(item){
+  if(!item.yld || item.yld <= 0) return 99999;
+  // Максимум = общий остаток МДФ * выход с листа
+  return MDF_TOTAL * item.yld;
+}
 var QUEUE = {}; // {art: {cnc:N, carp:N, sand:N, paint:N, pack:N}}
 // Маппинг: какой этап "кормит" следующего
 var CHAIN_PREV = {carp:'cnc', sand:'cnc', paint:'sand', pack:'paint'};
@@ -608,7 +634,7 @@ function fbOff(){fbL.forEach(function(r){try{r.off();}catch(e){}});fbL=[];}
 
 function startWorker(){
   sv('work-name','Ассалам алайкум, '+CU.name);sv('work-role',ROLE[CU.role]||CU.role);sty('work-av',CU.avS);sv('work-av',CU.init);
-  loadQueue(function(){ renderWorkContent(); });loadBrakAlerts();loadActiveNotif('work');
+  loadQueue(function(){ if(CU.role==='cnc') loadMdfThenRender(); else renderWorkContent(); });loadBrakAlerts();loadActiveNotif('work');
   var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
   ref.on('value',function(s){var d=s.val()||{p:0,e:0};sv('work-d',d.p||0);sv('work-e',fmt(d.e||0));});
   fbL.push(ref);
@@ -652,11 +678,14 @@ function renderWorkContent(){
       }
     } else {
       var stg=stgs[0];
-      t.innerHTML='<div class="tile-art">'+item.art+'</div>'+(r==='cnc'?'<div class="tile-info">'+item.yld+' шт/лист</div>':'')+'<div class="tile-info">'+fmt(stg.rate)+'</div>'+availBadge;
-      t.onclick=(function(it,st,av){return function(){
+      var cncMax = (r==='cnc') ? getCncMax(item) : avail;
+      var cncBadge = (r==='cnc') ? '<div style="font-size:9px;color:'+(MDF_TOTAL>0?'var(--green-v)':'var(--red-v)')+';font-weight:600;margin-top:3px">'+(MDF_TOTAL>0?'МДФ: '+MDF_TOTAL+' л · макс '+cncMax+' шт':'МДФ закончился')+'</div>' : availBadge;
+      t.innerHTML='<div class="tile-art">'+item.art+'</div>'+(r==='cnc'?'<div class="tile-info">'+item.yld+' шт/лист</div>':'')+'<div class="tile-info">'+fmt(stg.rate)+'</div>'+cncBadge;
+      t.onclick=(function(it,st,av,cm){return function(){
+        if(r==='cnc' && cm<=0){toast('МДФ на складе закончился!',true);return;}
         if(r!=='cnc' && av===0){toast('Нет изделий в очереди',true);return;}
-        openOp(it.art,st.nm,st.rate,it.yld,it.art,av);
-      };})(item,stg,avail);
+        openOp(it.art,st.nm,st.rate,it.yld,it.art,r==='cnc'?cm:av);
+      };})(item,stg,avail,cncMax);
     }
     tiles.appendChild(t);
   });
@@ -1243,7 +1272,9 @@ function openMdfAdd(){mdfQtyV=10;document.getElementById('mdf-type').value='';sv
 function mdfChg(d){mdfQtyV=Math.max(1,mdfQtyV+d);sv('mdf-qty-val',mdfQtyV);}
 function mdfSave(){
   var type=document.getElementById('mdf-type').value.trim();if(!type){document.getElementById('mdf-type').style.borderColor='var(--red-v)';return;}
-  db.ref('mdf/stock/'+type.replace(/[.#$\[\]]/g,'_')).transaction(function(c){return (c||0)+mdfQtyV;});
+  var typeKey=type.replace(/[.#$\[\]]/g,'_');
+  // Всегда суммируем к существующему — не создаём новую запись
+  db.ref('mdf/stock/'+typeKey).transaction(function(c){return (c||0)+mdfQtyV;});
   db.ref('mdf/history').push({type:'in',mdfType:type,qty:mdfQtyV,date:tdk()});
   toast('+'+mdfQtyV+' листов '+type,false);closeOv();
   setTimeout(function(){renderMdfSummary();renderMdfHistory();updateMdfBadge();},500);
