@@ -1150,6 +1150,7 @@ function dismissNotif(el){el.style.display='none';if(el.dataset&&el.dataset.key)
 function startMaster(){
   sv('work-name','Ассалам алайкум, '+CU.name);
   sv('work-role','Мастер');
+  toast('Роль: '+CU.role+' | '+ROLE[CU.role], false);
   sty('work-av',CU.avS);sv('work-av',CU.init);
   loadBrakAlerts();loadActiveNotif('work');
   loadQueue(function(){ renderMasterContent(); });
