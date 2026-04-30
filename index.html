@@ -305,9 +305,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
 <div class="screen" id="sc-mdf">
   <div class="topbar" style="gap:10px"><div class="back-btn" onclick="goScreen('sc-admin')">&#8249;</div><div style="flex:1"><div class="tb-title">Склад МДФ</div><div class="tb-sub">остаток листов</div></div></div>
   <div class="scroll">
-    <div class="slbl">Остаток</div><div id="mdf-summary" style="padding:0 18px 8px"></div>
-    <button onclick="openMdfAdd()" style="margin:0 18px 14px;width:calc(100% - 36px);padding:13px;background:var(--amber-l);color:var(--amber);border:none;border-radius:var(--rs);font-size:14px;font-weight:600;cursor:pointer">+ Добавить листы</button>
-    <div class="slbl">История</div><div id="mdf-history" style="padding:0 18px 18px"></div>
+    <!-- Одна плитка с остатком и кнопкой + -->
+    <div style="margin:14px 18px 0;background:var(--card);border-radius:var(--r);border:1px solid var(--border);padding:16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 4px rgba(0,0,0,.05)">
+      <div>
+        <div style="font-size:11px;color:var(--ter);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:4px">МДФ на складе</div>
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <div style="font-size:36px;font-weight:700;color:var(--text);letter-spacing:-.03em" id="mdf-total-qty">0</div>
+          <div style="font-size:14px;color:var(--sub)">листов</div>
+        </div>
+        <div style="font-size:11px;color:var(--ter);margin-top:2px" id="mdf-total-sub"></div>
+      </div>
+      <button onclick="openMdfAdd()" style="width:52px;height:52px;border-radius:50%;background:var(--amber);color:white;border:none;font-size:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(122,74,0,.3);flex-shrink:0">+</button>
+    </div>
+    <div class="slbl" style="margin-top:10px">История</div>
+    <div id="mdf-history" style="padding:0 18px 18px"></div>
   </div>
 </div>
 <!-- НОВОСТИ -->
@@ -1256,10 +1267,18 @@ function goStock(){
 
 function goMdf(){goScreen('sc-mdf');renderMdfSummary();renderMdfHistory();}
 function renderMdfSummary(){
-  var el=document.getElementById('mdf-summary');el.innerHTML='';
   db.ref('mdf/stock').once('value').then(function(s){
-    var d=s.val()||{};if(!Object.keys(d).length){el.innerHTML='<div style="padding:14px 18px;text-align:center;font-size:13px;color:var(--ter)">Склад пуст</div>';return;}
-    Object.keys(d).forEach(function(type){var qty=d[type]||0;var warn=qty<=3;var card=document.createElement('div');card.className='mdf-card'+(warn?' mdf-warn':'');card.innerHTML='<div><div class="mdf-nm">&#129683; '+type+'</div><div style="font-size:11px;color:var(--ter)">листов'+(warn?' &#9888; мало':'')+'</div></div><div style="text-align:right"><div class="mdf-qty">'+qty+'</div></div>';el.appendChild(card);});
+    var d=s.val()||{};
+    var total=Object.values(d).reduce(function(sum,v){return sum+(v||0);},0);
+    var types=Object.keys(d).filter(function(k){return d[k]>0;});
+    var qtEl=document.getElementById('mdf-total-qty');
+    var subEl=document.getElementById('mdf-total-sub');
+    if(qtEl) qtEl.textContent=total;
+    if(subEl){
+      if(total<=3&&total>0){qtEl.style.color='var(--red-v)';subEl.textContent='⚠ мало — пополни склад';}
+      else if(total===0){qtEl.style.color='var(--red-v)';subEl.textContent='склад пуст!';}
+      else{qtEl.style.color='var(--text)';subEl.textContent=types.join(', ');}
+    }
   });
 }
 function renderMdfHistory(){
