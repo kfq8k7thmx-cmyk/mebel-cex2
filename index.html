@@ -525,7 +525,7 @@ function loadQueue(cb){
       // Обновить плитки если экран активен
       var sc = document.getElementById('sc-work');
       if(sc && sc.classList.contains('active')){
-        if(CU && CU.role==='master') renderMasterContent();
+        if(CU && isMasterRole(CU.role)) renderMasterContent();
         else renderWorkContent();
       }
       var sp = document.getElementById('sc-pack');
