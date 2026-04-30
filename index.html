@@ -676,6 +676,8 @@ function goScreen(id){document.querySelectorAll('.screen').forEach(function(s){s
 function fbOff(){fbL.forEach(function(r){try{r.off();}catch(e){}});fbL=[];}
 
 function startWorker(){
+  // Если роль мастера — перенаправить
+  if(isMasterRole(CU.role)){ startMaster(); return; }
   sv('work-name','Ассалам алайкум, '+CU.name);sv('work-role',ROLE[CU.role]||CU.role);sty('work-av',CU.avS);sv('work-av',CU.init);
   loadQueue(function(){ if(CU.role==='cnc') loadMdfThenRender(); else renderWorkContent(); });loadBrakAlerts();loadActiveNotif('work');
   var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
@@ -684,6 +686,7 @@ function startWorker(){
 }
 
 function renderWorkContent(){
+  if(isMasterRole(CU.role)){ renderMasterContent(); return; }
   var el=document.getElementById('work-content');el.innerHTML='';
   var r=CU.role;
   // Для маляра — показывать изделия у которых есть цвета
