@@ -866,23 +866,56 @@ function startPack(){
   fbL.push(ref);
 }
 function renderPackTiles(){
-  var g=document.getElementById('pack-tiles');g.innerHTML='';
-  var items=Object.values(NOMENCL).filter(function(i){return i.stages&&i.stages.some(function(s){return s.role==='pack';});});
-  if(!items.length){g.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;font-size:13px;color:var(--ter)">Нет изделий для упаковки</div>';return;}
+  var g=document.getElementById('pack-tiles');
+  if(!g)return;
+  g.innerHTML='';
+  var items=Object.values(NOMENCL).filter(function(i){
+    return i.stages&&i.stages.some(function(s){return s.role==='pack';});
+  });
+  if(!items.length){
+    g.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:20px;font-size:13px;color:var(--ter)">Нет изделий для упаковки</div>';
+    return;
+  }
   items.forEach(function(item){
     var stg=item.stages.find(function(s){return s.role==='pack';});
-    var t=document.createElement('div');t.className='tile';
-    var packAvail = getAvailable(item.art, 'pack');
-    var packBadge = packAvail===0 ? '<div style="font-size:9px;color:var(--red-v);font-weight:600;margin-top:3px">нет от маляра</div>'
-      : '<div style="font-size:9px;color:var(--green-v);font-weight:600;margin-top:3px">в очереди: '+packAvail+' шт</div>';
     if(item.colors&&item.colors.length){
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+fmt(stg.rate)+'</div>'+packBadge;
-      t.onclick=(function(it,st,av){return function(){ if(av===0){toast('Нет изделий от маляра',true);return;} openPackColors(it,st,av);};})(item,stg,packAvail);
+      // Отдельная плитка для каждого цвета
+      item.colors.forEach(function(c){
+        var artKey=item.art+'-'+c.num;
+        var av=getAvailablePack(artKey);
+        var t=document.createElement('div');t.className='tile';
+        t.innerHTML='<div class="tile-art">'+artKey+'</div>'
+          +'<div class="tile-info">'+c.nm+'</div>'
+          +'<div class="tile-info">'+fmt(stg.rate)+'</div>'
+          +(av>0
+            ?'<div style="font-size:9px;color:var(--green-v);font-weight:600;margin-top:3px">'+av+' шт</div>'
+            :'<div style="font-size:9px;color:var(--ter);font-weight:400;margin-top:3px">нет от маляра</div>');
+        if(av>0){
+          t.onclick=(function(ak,base,nm,rate,avail){
+            return function(){openOp(ak,nm+' (упаковка)',rate,1,base,avail);};
+          })(artKey,item.art,c.nm,stg.rate,av);
+        } else {
+          t.style.opacity='0.45';t.style.cursor='default';
+        }
+        g.appendChild(t);
+      });
     } else {
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+fmt(stg.rate)+'</div>'+packBadge;
-      t.onclick=(function(it,st,av){return function(){ if(av===0){toast('Нет изделий от маляра',true);return;} openOp(it.art,st.nm,st.rate,1,it.art,av);};})(item,stg,packAvail);
+      var av2=getAvailablePack(item.art);
+      var t2=document.createElement('div');t2.className='tile';
+      t2.innerHTML='<div class="tile-art">'+item.art+'</div>'
+        +'<div class="tile-info">'+fmt(stg.rate)+'</div>'
+        +(av2>0
+          ?'<div style="font-size:9px;color:var(--green-v);font-weight:600;margin-top:3px">'+av2+' шт</div>'
+          :'<div style="font-size:9px;color:var(--ter);font-weight:400;margin-top:3px">нет от маляра</div>');
+      if(av2>0){
+        t2.onclick=(function(it,st,av){
+          return function(){openOp(it.art,st.nm,st.rate,1,it.art,av);};
+        })(item,stg,av2);
+      } else {
+        t2.style.opacity='0.45';t2.style.cursor='default';
+      }
+      g.appendChild(t2);
     }
-    g.appendChild(t);
   });
 }
 function openPackColors(item,stg,avail){
