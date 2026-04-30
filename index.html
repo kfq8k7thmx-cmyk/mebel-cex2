@@ -1200,23 +1200,26 @@ function getMasterDone(art, stageKey){
 
 // Обновить очередь мастера
 function updateMasterQueue(art, stageKey, qty){
-  db.ref('queue/'+tdk()+'/'+art+'/master_'+stageKey).transaction(function(c){return (c||0)+qty;});
+  // stageKey уже содержит 'master_stage_N', пишем как 'master_master_stage_N'
+  var fullKey='master_'+stageKey;
+  db.ref('queue/'+tdk()+'/'+art+'/'+fullKey).transaction(function(c){return (c||0)+qty;});
   var qArt=QUEUE[art]||{};
-  qArt['master_'+stageKey]=(qArt['master_'+stageKey]||0)+qty;
+  qArt[fullKey]=(qArt[fullKey]||0)+qty;
   QUEUE[art]=qArt;
 }
 
 function renderMasterContent(){
+  if(!isMasterRole(CU.role)){renderWorkContent();return;}
   var el=document.getElementById('work-content');
+  if(!el)return;
   el.innerHTML='';
 
-  // Найти все артикулы где есть этапы с role='master'
   var items=Object.values(NOMENCL).filter(function(i){
     return i.stages&&i.stages.some(function(s){return isMasterRole(s.role);});
   });
 
   if(!items.length){
-    el.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--ter)">Нет изделий для Мастера.<br>Добавьте этапы с ролью Мастер в номенклатуре.</div>';
+    el.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--ter)">Нет изделий для Мастера</div>';
     return;
   }
 
@@ -1224,95 +1227,103 @@ function renderMasterContent(){
     var q=QUEUE[item.art]||{};
     var cncDone=q['cnc']||0;
 
-    // Все этапы мастера для этого артикула по порядку
     var masterStages=item.stages.filter(function(s){return isMasterRole(s.role);});
+    if(!masterStages.length)return;
 
-    // Заголовок артикула
+    // Считаем сколько выполнено на каждом этапе
+    var doneCounts=masterStages.map(function(s,i){
+      var key='master_master_stage_'+i;
+      // Для этапов с цветом суммируем
+      var total=0;
+      Object.keys(q).forEach(function(k){
+        if(k===key||k.indexOf(key+'_')===0) total+=q[k]||0;
+      });
+      return total;
+    });
+
+    // prevAvail[i] = сколько доступно для этапа i
+    // Этап 0: доступно = cncDone - doneCounts[0]
+    // Этап 1: доступно = doneCounts[0] - doneCounts[1]
+    // Этап i: доступно = doneCounts[i-1] - doneCounts[i]
+
     var artHead=document.createElement('div');
     artHead.style.cssText='padding:8px 18px 4px;font-size:10px;font-weight:700;color:var(--ter);letter-spacing:.1em;text-transform:uppercase';
-    artHead.textContent=item.art;
+    artHead.textContent=item.art+' · от ЧПУ: '+cncDone+' шт';
     el.appendChild(artHead);
 
-    var stepsWrap=document.createElement('div');
-    stepsWrap.style.cssText='margin:0 18px 12px;border-radius:var(--r);border:1px solid var(--border);overflow:hidden;background:var(--card)';
-
-    // Считаем накопленный прогресс по каждому этапу
-    // Каждый этап ограничен предыдущим
-    var prevDone=cncDone; // первый этап ограничен ЧПУ
+    var wrap=document.createElement('div');
+    wrap.style.cssText='margin:0 18px 12px;border-radius:var(--r);border:1px solid var(--border);overflow:hidden;background:var(--card)';
 
     masterStages.forEach(function(s,i){
-      var stageKey='master_stage_'+i;
-      var myDone=q[stageKey]||0;
+      var myDone=doneCounts[i];
+      var prevLimit=i===0?cncDone:doneCounts[i-1];
+      var available=Math.max(0,prevLimit-myDone);
+      var isDone=prevLimit>0&&myDone>=prevLimit;
+      var isLocked=prevLimit===0;
 
-      // Для покраски — особый случай если есть цвета
-      var isLastStage=(i===masterStages.length-1);
-      var isPaintStage=s.nm.toLowerCase().indexOf('покраск')>=0;
-      var isPackStage=s.nm.toLowerCase().indexOf('упаков')>=0;
-
-      var available=Math.max(0,prevDone-myDone);
-      var isDone=myDone>=prevDone&&prevDone>0;
-      var isLocked=prevDone===0;
-
-      var colors=['#3333AA','#7A4A00','#0D5C3A','#6B21A8','#8B1A1A'];
-      var bgs=['#EEEEF5','#FDF3E3','#E8F5EE','#F0EBF8','#FAEAEA'];
-      var ci=i%colors.length;
+      var clrs=['#3333AA','#7A4A00','#0D5C3A','#6B21A8','#8B1A1A','#0D5C6A'];
+      var bgs=['#EEEEF5','#FDF3E3','#E8F5EE','#F0EBF8','#FAEAEA','#E8F5F5'];
+      var ci=i%clrs.length;
 
       var row=document.createElement('div');
-      var isLast=i===masterStages.length-1;
-      row.style.cssText='display:flex;align-items:center;gap:10px;padding:12px 14px;'
-        +(isLast?'':'border-bottom:0.5px solid var(--border);')
-        +(isDone?'opacity:0.55;':'')
-        +((available>0&&!isDone)?'cursor:pointer;background:'+bgs[ci]+';':'');
+      var notLast=i<masterStages.length-1;
+      row.style.cssText='display:flex;align-items:center;gap:10px;padding:13px 14px;'
+        +(notLast?'border-bottom:0.5px solid var(--border);':'')
+        +(available>0&&!isDone?'cursor:pointer;background:'+bgs[ci]+';':isDone?'opacity:0.55;':'opacity:0.35;');
 
-      var icon=isDone?'✓':(available>0?'›':'·');
-      var iconColor=isDone?colors[ci]:(available>0?colors[ci]:'var(--ter)');
-      var textColor=available>0?colors[ci]:(isDone?'var(--sub)':'var(--ter)');
+      var icon=isDone?'✓':available>0?'›':'·';
+      var icolor=isDone?clrs[ci]:available>0?clrs[ci]:'var(--ter)';
+      var tcolor=available>0?clrs[ci]:isDone?'var(--sub)':'var(--ter)';
 
-      row.innerHTML='<div style="width:26px;height:26px;border-radius:50%;background:'
-        +(isDone||available>0?bgs[ci]:'var(--bg)')+';border:1.5px solid '
-        +(isDone||available>0?colors[ci]:'var(--border)')
-        +';display:flex;align-items:center;justify-content:center;font-size:13px;color:'+iconColor+';flex-shrink:0;font-weight:700">'+icon+'</div>'
+      row.innerHTML=
+        '<div style="width:26px;height:26px;border-radius:50%;background:'
+          +(isDone||available>0?bgs[ci]:'var(--bg)')
+          +';border:1.5px solid '+(isDone||available>0?clrs[ci]:'var(--border)')
+          +';display:flex;align-items:center;justify-content:center;font-size:13px;color:'+icolor+';flex-shrink:0;font-weight:700">'+icon+'</div>'
         +'<div style="flex:1">'
-        +'<div style="font-size:13px;font-weight:600;color:'+textColor+'">'+s.nm+'</div>'
-        +'<div style="font-size:10px;color:var(--ter);margin-top:2px">'
-        +(isDone?'✓ выполнено '+myDone+' шт · '+fmt(s.rate)
-          :available>0?'доступно: '+available+' шт · '+fmt(s.rate)
-          :'ожидание — нужно: '+prevDone+' шт от предыдущего')
-        +'</div></div>'
-        +(available>0&&!isDone?'<div style="font-size:12px;font-weight:600;color:'+colors[ci]+'">'+available+'</div>':'');
+          +'<div style="font-size:13px;font-weight:600;color:'+tcolor+'">'+s.nm+'</div>'
+          +'<div style="font-size:10px;color:var(--ter);margin-top:2px">'
+            +(isDone?'✓ выполнено: '+myDone+' шт · '+fmt(s.rate)
+              :available>0?'доступно: '+available+' шт · '+fmt(s.rate)
+              :isLocked?'ожидание ЧПУ':'ожидание этапа '+(i)+': '+prevLimit+' шт')
+          +'</div>'
+        +'</div>'
+        +(available>0&&!isDone?'<div style="font-size:14px;font-weight:700;color:'+clrs[ci]+'">'+available+'</div>':'');
 
       if(available>0&&!isDone){
-        row.addEventListener('click',(function(stage,stgKey,avail,art,hasColors,isPack){
+        var isPaint=s.nm.toLowerCase().indexOf('покраск')>=0;
+        var isPack=s.nm.toLowerCase().indexOf('упаков')>=0;
+        var stageKey='master_stage_'+i;
+
+        row.addEventListener('click',(function(stage,sk,avail,paint,pack){
           return function(){
-            if(hasColors&&item.colors&&item.colors.length>0){
-              // Покраска с выбором цвета
-              openMasterColorPick(item,stage,stgKey,avail);
+            if(paint&&item.colors&&item.colors.length){
+              openMasterColorPick(item,stage,sk,avail);
             } else {
-              // Обычный этап
-              opCtx={key:art,nm:stage.nm+' ('+art+')',rate:stage.rate,yld:1,
-                artBase:art,q:1,b:0,maxQty:avail,stageIdx:null,
-                masterStageKey:stgKey,masterColorNum:null,masterIsPack:isPack};
-              sv('op-title',art);
+              opCtx={
+                key:item.art,nm:stage.nm+' ('+item.art+')',
+                rate:stage.rate,yld:1,artBase:item.art,
+                q:1,b:0,maxQty:avail,stageIdx:null,
+                masterStageKey:sk,masterColorNum:null,masterIsPack:pack
+              };
+              sv('op-title',item.art);
               sv('op-sub',stage.nm+' · '+fmt(stage.rate)+' · макс: '+avail+' шт');
               sv('op-q',1);sv('op-b',0);updOpEarn();openOv('ov-op');
             }
           };
-        })(s,stageKey,available,item.art,isPaintStage,isPackStage));
+        })(s,stageKey,available,isPaint,isPack));
       }
-
-      stepsWrap.appendChild(row);
-      // Следующий этап ограничен текущим
-      prevDone=myDone;
+      wrap.appendChild(row);
     });
-
-    el.appendChild(stepsWrap);
+    el.appendChild(wrap);
   });
 
-  // Секция реставрации WB — внизу
+  // WB брак
   db.ref('brak').once('value').then(function(snap){
     renderWbBrakForMaster(snap.val()||{});
   });
 }
+
 
 function openMasterColorPick(item,stage,stageKey,avail){
   var ov=mkTmpOv('ov-mc');
