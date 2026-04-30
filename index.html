@@ -468,6 +468,69 @@ firebase.initializeApp({
 });
 var db=firebase.database();
 
+
+// ===== СИСТЕМА ОЧЕРЕДИ =====
+var QUEUE = {}; // {art: {cnc:N, carp:N, sand:N, paint:N, pack:N}}
+// Маппинг: какой этап "кормит" следующего
+var CHAIN_PREV = {carp:'cnc', sand:'carp', paint:'sand', pack:'paint'};
+var CHAIN_LABEL = {carp:'от ЧПУ', sand:'от столяра', paint:'от шлифовки', pack:'от маляра'};
+
+function loadQueue(cb){
+  db.ref('queue/'+tdk()).once('value').then(function(s){
+    QUEUE = s.val() || {};
+    if(cb) cb();
+  }).catch(function(){ if(cb) cb(); });
+}
+
+// Сколько доступно для текущего рабочего по артикулу
+function getAvailable(art, role){
+  var q = QUEUE[art] || {};
+  var prevRole = CHAIN_PREV[role];
+  if(!prevRole) return 99999; // ЧПУ — не ограничен очередью (ограничен МДФ)
+  var prevDone = q[prevRole] || 0;
+  var myDone = q[role] || 0;
+  // Для маляра — суммируем все цвета
+  if(role === 'paint'){
+    var paintDone = 0;
+    Object.keys(q).forEach(function(k){ if(k.indexOf('paint') === 0) paintDone += q[k] || 0; });
+    myDone = paintDone;
+  }
+  if(role === 'pack'){
+    var packDone = 0;
+    Object.keys(q).forEach(function(k){ if(k.indexOf('pack') === 0) packDone += q[k] || 0; });
+    myDone = packDone;
+  }
+  return Math.max(0, prevDone - myDone);
+}
+
+// Обновить очередь после записи операции
+function updateQueue(art, role, qty, colorNum){
+  var key = role;
+  if(role === 'paint' && colorNum) key = 'paint_' + colorNum;
+  if(role === 'pack' && colorNum) key = 'pack_' + colorNum;
+  var artKey = art.split('-')[0]; // базовый артикул без цвета
+  db.ref('queue/'+tdk()+'/'+artKey+'/'+key).transaction(function(c){
+    return (c||0) + qty;
+  });
+}
+
+// Показать сколько в очереди у рабочего
+function renderQueueInfo(el, art, role){
+  var avail = getAvailable(art, role);
+  var prevRole = CHAIN_PREV[role];
+  if(!prevRole) return; // ЧПУ не показываем
+  var lbl = CHAIN_LABEL[role] || '';
+  var q = QUEUE[art] || {};
+  var prevDone = prevRole ? (q[prevRole] || 0) : 0;
+  if(prevDone === 0){
+    el.innerHTML = '<div style="background:var(--red-l);border-radius:var(--rs);padding:8px 12px;margin-bottom:8px;font-size:12px;color:var(--red);font-weight:500">&#9888; Нет изделий в очереди '+lbl+'</div>';
+  } else {
+    el.innerHTML = '<div style="background:var(--green-l);border-radius:var(--rs);padding:8px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+      +'<div style="font-size:12px;color:var(--green);font-weight:500">В очереди '+lbl+'</div>'
+      +'<div style="font-size:16px;font-weight:700;color:var(--green)">'+avail+' шт</div>'
+      +'</div>';
+  }
+}
 // ===== НОМЕНКЛАТУРА =====
 var NOMENCL={};
 var INIT_NOMENCL={
@@ -525,7 +588,7 @@ function fbOff(){fbL.forEach(function(r){try{r.off();}catch(e){}});fbL=[];}
 
 function startWorker(){
   sv('work-name','Ассалам алайкум, '+CU.name);sv('work-role',ROLE[CU.role]||CU.role);sty('work-av',CU.avS);sv('work-av',CU.init);
-  renderWorkContent();loadBrakAlerts();loadActiveNotif('work');
+  loadQueue(function(){ renderWorkContent(); });loadBrakAlerts();loadActiveNotif('work');
   var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
   ref.on('value',function(s){var d=s.val()||{p:0,e:0};sv('work-d',d.p||0);sv('work-e',fmt(d.e||0));});
   fbL.push(ref);
@@ -541,16 +604,22 @@ function renderWorkContent(){
   items.forEach(function(item){
     var t=document.createElement('div');t.className='tile';
     var stgs=item.stages.filter(function(s){return s.role===r;});
+    var avail = getAvailable(item.art, r);
+    var availBadge = (r!=='cnc' && avail===0) ? '<div style="font-size:9px;color:var(--red-v);font-weight:600;margin-top:3px">нет в очереди</div>'
+      : (r!=='cnc' ? '<div style="font-size:9px;color:var(--green-v);font-weight:600;margin-top:3px">в очереди: '+avail+' шт</div>' : '');
     if(r==='paint'){
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">покраска · '+stgs.length+' цв.</div>';
-      t.onclick=(function(it){return function(){openColorPicker(it);};})(item);
+      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">покраска</div>'+availBadge;
+      t.onclick=(function(it,av){return function(){ if(av===0){toast('Нет изделий от шлифовщика',true);return;} openColorPicker(it);};})(item,avail);
     } else if(r==='carp'){
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+stgs.length+' этапа</div>';
-      t.onclick=(function(it){return function(){openCarpStages(it);};})(item);
+      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+stgs.length+' этапа</div>'+availBadge;
+      t.onclick=(function(it,av){return function(){ if(av===0){toast('Нет изделий от ЧПУ',true);return;} openCarpStages(it);};})(item,avail);
     } else {
       var stg=stgs[0];
-      t.innerHTML='<div class="tile-art">'+item.art+'</div>'+(r==='cnc'?'<div class="tile-info">'+item.yld+' шт/лист</div>':'')+'<div class="tile-info">'+fmt(stg.rate)+'</div>';
-      t.onclick=(function(it,st){return function(){openOp(it.art,st.nm,st.rate,it.yld,it.art);};})(item,stg);
+      t.innerHTML='<div class="tile-art">'+item.art+'</div>'+(r==='cnc'?'<div class="tile-info">'+item.yld+' шт/лист</div>':'')+'<div class="tile-info">'+fmt(stg.rate)+'</div>'+availBadge;
+      t.onclick=(function(it,st,av){return function(){
+        if(r!=='cnc' && av===0){toast('Нет изделий в очереди',true);return;}
+        openOp(it.art,st.nm,st.rate,it.yld,it.art,av);
+      };})(item,stg,avail);
     }
     tiles.appendChild(t);
   });
@@ -565,7 +634,12 @@ function openColorPicker(item){
   html+='</div><button class="btn-cancel" onclick="rmTmpOv(\'ov-color-tmp\')">Отмена</button>';
   ov.querySelector('.sheet').innerHTML=html;
 }
-function pickColor(art,num,nm,rate){rmTmpOv('ov-color-tmp');openOp(art+'-'+num,nm+' ('+art+')',rate,1,art);}
+function pickColor(art,num,nm,rate){
+  rmTmpOv('ov-color-tmp');
+  // Для маляра лимит = доступно от шлифовщика
+  var avail = getAvailable(art, 'paint');
+  openOp(art+'-'+num,nm+' ('+art+')',rate,1,art,avail);
+}
 
 function openCarpStages(item){
   var stgs=item.stages.filter(function(s){return s.role==='carp';});
@@ -575,7 +649,11 @@ function openCarpStages(item){
   html+='</div><button class="btn-cancel" onclick="rmTmpOv(\'ov-carp-tmp\')">Отмена</button>';
   ov.querySelector('.sheet').innerHTML=html;
 }
-function pickCarpStage(art,nm,rate){rmTmpOv('ov-carp-tmp');openOp(art,nm+' ('+art+')',rate,1,art);}
+function pickCarpStage(art,nm,rate){
+  rmTmpOv('ov-carp-tmp');
+  var avail = getAvailable(art, 'carp');
+  openOp(art,nm+' ('+art+')',rate,1,art,avail);
+}
 
 function mkTmpOv(id){
   var ov=document.createElement('div');ov.className='overlay open';ov.id=id;
@@ -585,11 +663,13 @@ function mkTmpOv(id){
 }
 function rmTmpOv(id){var el=document.getElementById(id);if(el)el.remove();}
 
-function openOp(artKey,stgNm,rate,yld,artBase){
-  opCtx={key:artKey,nm:stgNm,rate:rate,yld:yld||1,artBase:artBase,q:yld||1,b:0};
-  sv('op-title',artKey);sv('op-sub',stgNm+' · '+fmt(rate));sv('op-q',opCtx.q);sv('op-b',0);updOpEarn();openOv('ov-op');
+function openOp(artKey,stgNm,rate,yld,artBase,maxQty){
+  opCtx={key:artKey,nm:stgNm,rate:rate,yld:yld||1,artBase:artBase,q:yld||1,b:0,maxQty:maxQty||99999};
+  sv('op-title',artKey);
+  var limitTxt=(maxQty&&maxQty<99999)?' · макс: '+maxQty+' шт':'';
+  sv('op-sub',stgNm+' · '+fmt(rate)+limitTxt);sv('op-q',opCtx.q);sv('op-b',0);updOpEarn();openOv('ov-op');
 }
-function opC(f,d){if(f==='q')opCtx.q=Math.max(0,opCtx.q+d);else opCtx.b=Math.max(0,opCtx.b+d);updOpEarn();}
+function opC(f,d){if(f==='q')opCtx.q=Math.max(0,Math.min(opCtx.maxQty||99999,opCtx.q+d));else opCtx.b=Math.max(0,opCtx.b+d);updOpEarn();}
 function updOpEarn(){sv('op-q',opCtx.q);sv('op-b',opCtx.b);sv('op-earn',opCtx.q+' × '+fmt(opCtx.rate)+' = '+fmt(opCtx.q*opCtx.rate)+(opCtx.b>0?' · брак: '+opCtx.b:''));}
 
 function opSave(){
@@ -600,13 +680,24 @@ function opSave(){
   .then(function(){
     if(CU.role==='cnc'&&opCtx.yld>0)deductMdf(opCtx.artBase,opCtx.yld,opCtx.q);
     if(CU.role==='pack'||CU.role==='wb'){db.ref('stock/'+opCtx.key).transaction(function(c){c=c||{total:0,lastDate:''};c.total+=opCtx.q;c.lastDate=dk;return c;});}
+    // Обновить очередь
+    var colorNum = opCtx.key.indexOf('-')>0 ? opCtx.key.split('-')[1] : null;
+    updateQueue(opCtx.artBase, CU.role, opCtx.q, colorNum);
+    // Обновить локальную очередь
+    var qArt = QUEUE[opCtx.artBase] || {};
+    var qKey = CU.role;
+    if(colorNum) qKey = CU.role+'_'+colorNum;
+    qArt[qKey] = (qArt[qKey]||0) + opCtx.q;
+    QUEUE[opCtx.artBase] = qArt;
     toast(opCtx.key+' · '+opCtx.q+' шт · '+fmt(e),false);closeOv();
+    // Перерендерить плитки с обновлёнными очередями
+    setTimeout(renderWorkContent, 300);
   }).catch(function(err){toast('Ошибка: '+err.message,true);});
 }
 
 function startPack(){
   sv('pack-name','Ассалам алайкум, '+CU.name);sty('pack-av',CU.avS);sv('pack-av',CU.init);
-  renderPackTiles();loadActiveNotif('pack');
+  loadQueue(function(){ renderPackTiles(); });loadActiveNotif('pack');
   var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
   ref.on('value',function(s){var d=s.val()||{p:0,e:0};sv('pack-d',d.p||0);sv('pack-e',fmt(d.e||0));});
   fbL.push(ref);
@@ -618,24 +709,27 @@ function renderPackTiles(){
   items.forEach(function(item){
     var stg=item.stages.find(function(s){return s.role==='pack';});
     var t=document.createElement('div');t.className='tile';
+    var packAvail = getAvailable(item.art, 'pack');
+    var packBadge = packAvail===0 ? '<div style="font-size:9px;color:var(--red-v);font-weight:600;margin-top:3px">нет от маляра</div>'
+      : '<div style="font-size:9px;color:var(--green-v);font-weight:600;margin-top:3px">в очереди: '+packAvail+' шт</div>';
     if(item.colors&&item.colors.length){
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+fmt(stg.rate)+'</div><div class="tile-info">выбор цвета</div>';
-      t.onclick=(function(it,st){return function(){openPackColors(it,st);};})(item,stg);
+      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+fmt(stg.rate)+'</div>'+packBadge;
+      t.onclick=(function(it,st,av){return function(){ if(av===0){toast('Нет изделий от маляра',true);return;} openPackColors(it,st,av);};})(item,stg,packAvail);
     } else {
-      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+fmt(stg.rate)+'</div>';
-      t.onclick=(function(it,st){return function(){openOp(it.art,st.nm,st.rate,1,it.art);};})(item,stg);
+      t.innerHTML='<div class="tile-art">'+item.art+'</div><div class="tile-info">'+fmt(stg.rate)+'</div>'+packBadge;
+      t.onclick=(function(it,st,av){return function(){ if(av===0){toast('Нет изделий от маляра',true);return;} openOp(it.art,st.nm,st.rate,1,it.art,av);};})(item,stg,packAvail);
     }
     g.appendChild(t);
   });
 }
-function openPackColors(item,stg){
+function openPackColors(item,stg,avail){
   var ov=mkTmpOv('ov-pack-col');
   var html='<div class="sh-handle"></div><div class="sh-title">'+item.art+'</div><div class="sh-sub">Выбери цвет</div><div class="color-tiles">';
   item.colors.forEach(function(c,i){html+='<div class="ctile '+CL[i%5]+'" onclick="pickPackColor(\''+item.art+'\','+c.num+',\''+c.nm+'\','+stg.rate+')"><div class="ctile-num">'+c.num+'</div><div class="ctile-nm">'+c.nm+'</div></div>';});
   html+='</div><button class="btn-cancel" onclick="rmTmpOv(\'ov-pack-col\')">Отмена</button>';
   ov.querySelector('.sheet').innerHTML=html;
 }
-function pickPackColor(art,num,nm,rate){rmTmpOv('ov-pack-col');openOp(art+'-'+num,nm+' ('+art+')',rate,1,art);}
+function pickPackColor(art,num,nm,rate,avail){rmTmpOv('ov-pack-col');openOp(art+'-'+num,nm+' ('+art+')',rate,1,art,avail||99999);}
 
 var WB_RATE=200;
 var wbCurrentMode='good',wbCurrentTask=null,wbCurrentQty=1;
