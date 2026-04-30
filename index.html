@@ -716,6 +716,8 @@ function openCarpStages(item){
   var sheet=ov.querySelector('.sheet');
 
   function render(){
+    // Пересчитываем avail при каждом рендере
+    avail = q['cnc'] || 0; // сколько ЧПУ сделал для этого артикула
     sheet.innerHTML='';
     // Заголовок
     var hd=document.createElement('div');hd.className='sh-handle';sheet.appendChild(hd);
