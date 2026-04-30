@@ -523,13 +523,11 @@ function getAvailable(art, role){
 }
 
 // Обновить очередь после записи операции
-function updateQueue(art, role, qty, colorNum, stageName){
+function updateQueue(art, role, qty, colorNum, carpStageIdx){
   var key = role;
   if(role === 'paint' && colorNum) key = 'paint_' + colorNum;
   if(role === 'pack' && colorNum) key = 'pack_' + colorNum;
-  // Для столяра — храним каждый этап отдельно чтобы не суммировать
-  // НО для подсчёта очереди шлифовщика берём carp как общий
-  // Поэтому записываем и в carp (для отслеживания) — не меняем логику
+  if(role === 'carp' && carpStageIdx!==null && carpStageIdx!==undefined) key = 'carp_stage_'+carpStageIdx;
   var artKey = art.split('-')[0];
   db.ref('queue/'+tdk()+'/'+artKey+'/'+key).transaction(function(c){
     return (c||0) + qty;
@@ -671,11 +669,71 @@ function pickColor(art,num,nm,rate){
 
 function openCarpStages(item){
   var stgs=item.stages.filter(function(s){return s.role==='carp';});
+  var avail=getAvailable(item.art,'carp'); // сколько от ЧПУ
+  var q=QUEUE[item.art]||{};
   var ov=mkTmpOv('ov-carp-tmp');
-  var html='<div class="sh-handle"></div><div class="sh-title">'+item.art+'</div><div class="sh-sub">Выбери этап</div><div class="stage-list" style="padding:0">';
-  stgs.forEach(function(s){html+='<div class="stage-item" onclick="pickCarpStage(\''+item.art+'\',\''+s.nm+'\','+s.rate+')"><div class="stage-nm">'+s.nm+'</div><div class="stage-rate">'+fmt(s.rate)+'</div></div>';});
-  html+='</div><button class="btn-cancel" onclick="rmTmpOv(\'ov-carp-tmp\')">Отмена</button>';
-  ov.querySelector('.sheet').innerHTML=html;
+  var sheet=ov.querySelector('.sheet');
+
+  function renderCarpSheet(){
+    var html='<div class="sh-handle"></div>'
+      +'<div class="sh-title">'+item.art+'</div>'
+      +'<div class="sh-sub" style="display:flex;justify-content:space-between;align-items:center">'
+      +'<span>Этапы столяра</span>'
+      +'<span style="background:var(--accent-l);color:var(--accent);font-size:11px;font-weight:600;padding:3px 10px;border-radius:8px">'+avail+' шт от ЧПУ</span>'
+      +'</div>';
+
+    stgs.forEach(function(s,i){
+      // Проверяем сколько уже записано по этому этапу сегодня
+      var stageKey='carp_stage_'+i; // уникальный ключ для каждого этапа
+      var donePcs=q[stageKey]||0;
+      var isDone=donePcs>=avail&&avail>0;
+      var remaining=Math.max(0,avail-donePcs);
+
+      if(isDone){
+        // Выполнен — серый, недоступен
+        html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;margin-bottom:8px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--border);opacity:.5">'
+          +'<div><div style="font-size:14px;font-weight:500;color:var(--sub)">'+s.nm+'</div>'
+          +'<div style="font-size:11px;color:var(--ter);margin-top:3px">Выполнено: '+donePcs+' шт</div></div>'
+          +'<div style="font-size:13px;font-weight:600;color:var(--green-v)">✓ готово</div>'
+          +'</div>';
+      } else {
+        // Доступен
+        html+='<div class="stage-item carp-stage-btn" style="flex-direction:column;align-items:flex-start;gap:4px" data-art="'+item.art+'" data-nm="'+s.nm+'" data-rate="'+s.rate+'" data-idx="'+i+'" data-max="'+remaining+'">';
+          +'<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'
+          +'<div class="stage-nm">'+s.nm+'</div>'
+          +'<div class="stage-rate">'+fmt(s.rate)+'</div>'
+          +'</div>'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'
+          +(donePcs>0
+            ?'<div style="font-size:10px;color:var(--amber)">сделано '+donePcs+' шт · осталось '+remaining+' шт</div>'
+            :'<div style="font-size:10px;color:var(--sub)">доступно: '+avail+' шт</div>')
+          +'</div>'
+          +'</div>';
+      }
+    });
+
+    sheet.innerHTML=html;
+  }
+  renderCarpSheet();
+  // Добавить обработчики кликов
+  setTimeout(function(){
+    var closeBtn=ov.querySelector('#carp-close-btn');if(closeBtn)closeBtn.addEventListener('click',function(){rmTmpOv('ov-carp-tmp');});
+    var btns=ov.querySelectorAll('.carp-stage-btn');
+    btns.forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var art=btn.dataset.art;var nm=btn.dataset.nm;
+        var rate=parseInt(btn.dataset.rate);var idx=parseInt(btn.dataset.idx);var max=parseInt(btn.dataset.max);
+        pickCarpStageIdx(art,nm,rate,idx,max);
+      });
+    });
+  },50);
+}
+
+function pickCarpStageIdx(art,nm,rate,stageIdx,maxQty){
+  rmTmpOv('ov-carp-tmp');
+  // Передаём stageIdx чтобы обновить правильный ключ в queue
+  opCtx.stageIdx=stageIdx;
+  openOp(art,nm+' ('+art+')',rate,1,art,maxQty);
 }
 function pickCarpStage(art,nm,rate){
   rmTmpOv('ov-carp-tmp');
@@ -703,18 +761,21 @@ function updOpEarn(){sv('op-q',opCtx.q);sv('op-b',opCtx.b);sv('op-earn',opCtx.q+
 function opSave(){
   var e=opCtx.q*opCtx.rate;var dk=tdk();var ts=timeStr();
   toast('Сохраняю...',false);
-  db.ref('ops/'+dk+'/'+CU.id+'/entries').push({art:opCtx.key,artBase:opCtx.artBase,nm:opCtx.nm,stage:ROLE[CU.role]||CU.role,pcs:opCtx.q,earn:e,brak:opCtx.b,time:ts})
+  db.ref('ops/'+dk+'/'+CU.id+'/entries').push({art:opCtx.key,artBase:opCtx.artBase,nm:opCtx.nm,stage:ROLE[CU.role]||CU.role,pcs:opCtx.q,earn:e,brak:opCtx.b,time:ts,stageIdx:opCtx.stageIdx!==undefined?opCtx.stageIdx:null})
   .then(function(){return db.ref('ops/'+dk+'/'+CU.id+'/summary').transaction(function(c){c=c||{p:0,e:0,b:0};c.p+=opCtx.q;c.e+=e;c.b+=opCtx.b;return c;});})
   .then(function(){
     if(CU.role==='cnc'&&opCtx.yld>0)deductMdf(opCtx.artBase,opCtx.yld,opCtx.q);
     if(CU.role==='pack'||CU.role==='wb'){db.ref('stock/'+opCtx.key).transaction(function(c){c=c||{total:0,lastDate:''};c.total+=opCtx.q;c.lastDate=dk;return c;});}
     // Обновить очередь
     var colorNum = opCtx.key.indexOf('-')>0 ? opCtx.key.split('-')[1] : null;
-    updateQueue(opCtx.artBase, CU.role, opCtx.q, colorNum);
+    // Для столяра — ключ с индексом этапа
+    var carpStageIdx = (CU.role==='carp' && opCtx.stageIdx!==undefined) ? opCtx.stageIdx : null;
+    updateQueue(opCtx.artBase, CU.role, opCtx.q, colorNum, carpStageIdx);
     // Обновить локальную очередь
     var qArt = QUEUE[opCtx.artBase] || {};
     var qKey = CU.role;
     if(colorNum) qKey = CU.role+'_'+colorNum;
+    if(carpStageIdx!==null) qKey = 'carp_stage_'+carpStageIdx;
     qArt[qKey] = (qArt[qKey]||0) + opCtx.q;
     QUEUE[opCtx.artBase] = qArt;
     toast(opCtx.key+' · '+opCtx.q+' шт · '+fmt(e),false);closeOv();
@@ -893,10 +954,10 @@ function fixDelete(){
     var colorNum = op.art&&op.art.indexOf('-')>0 ? op.art.split('-')[1] : null;
     var qKey = CU.role;
     if(colorNum) qKey = CU.role+'_'+colorNum;
+    if(op.stageIdx!==undefined&&op.stageIdx!==null) qKey = 'carp_stage_'+op.stageIdx;
     db.ref('queue/'+tdk()+'/'+op.artBase+'/'+qKey).transaction(function(c){
       return Math.max(0,(c||0)-op.pcs);
     });
-    // Обновить локальную очередь
     if(QUEUE[op.artBase]){
       QUEUE[op.artBase][qKey]=Math.max(0,(QUEUE[op.artBase][qKey]||0)-op.pcs);
     }
