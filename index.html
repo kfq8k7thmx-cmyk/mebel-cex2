@@ -859,7 +859,8 @@ function opSave(){
     var colorNum = opCtx.key.indexOf('-')>0 ? opCtx.key.split('-')[1] : null;
     var carpStageIdx = (CU.role==='carp' && opCtx.stageIdx!==undefined) ? opCtx.stageIdx : null;
 
-    if(CU.role==='master' && opCtx.masterStageKey){
+    if(isMasterRole(CU.role) && opCtx.masterStageKey){
+      toast('Мастер пишет: '+opCtx.masterStageKey+' '+opCtx.q+'шт', false);
       updateMasterQueue(opCtx.artBase, opCtx.masterStageKey, opCtx.q);
       // Если последний этап (упаковка) — на склад
       if(opCtx.masterIsPack){
@@ -878,8 +879,8 @@ function opSave(){
       QUEUE[opCtx.artBase] = qArt;
     }
     toast(opCtx.key+' · '+opCtx.q+' шт · '+fmt(e),false);closeOv();
-    // Перерендерить плитки с обновлёнными очередями
-    setTimeout(renderWorkContent, 300);
+    if(isMasterRole(CU.role)) setTimeout(renderMasterContent,300);
+    else setTimeout(renderWorkContent, 300);
   }).catch(function(err){toast('Ошибка: '+err.message,true);});
 }
 
