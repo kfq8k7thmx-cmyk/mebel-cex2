@@ -502,6 +502,12 @@ function getAvailable(art, role){
   if(!prevRole) return 99999; // ЧПУ — не ограничен очередью (ограничен МДФ)
   var prevDone = q[prevRole] || 0;
   var myDone = q[role] || 0;
+  // Для столяра — каждый этап имеет лимит = cnc_done (не суммируем все этапы)
+  // Столяр видит сколько ЧПУ сделал — это его лимит для КАЖДОГО этапа
+  // Поэтому myDone для столяра = 0 (не ограничиваем по уже записанному)
+  if(role === 'carp'){
+    myDone = 0; // каждый этап столяра независим, лимит = cnc_done
+  }
   // Для маляра — суммируем все цвета
   if(role === 'paint'){
     var paintDone = 0;
@@ -517,11 +523,14 @@ function getAvailable(art, role){
 }
 
 // Обновить очередь после записи операции
-function updateQueue(art, role, qty, colorNum){
+function updateQueue(art, role, qty, colorNum, stageName){
   var key = role;
   if(role === 'paint' && colorNum) key = 'paint_' + colorNum;
   if(role === 'pack' && colorNum) key = 'pack_' + colorNum;
-  var artKey = art.split('-')[0]; // базовый артикул без цвета
+  // Для столяра — храним каждый этап отдельно чтобы не суммировать
+  // НО для подсчёта очереди шлифовщика берём carp как общий
+  // Поэтому записываем и в carp (для отслеживания) — не меняем логику
+  var artKey = art.split('-')[0];
   db.ref('queue/'+tdk()+'/'+artKey+'/'+key).transaction(function(c){
     return (c||0) + qty;
   });
@@ -851,16 +860,51 @@ function openFixOp(key){
 }
 function fixC(d){fixNewPcs=Math.max(0,fixNewPcs+d);sv('fixop-q',fixNewPcs);sv('fixop-earn',fixNewPcs+' шт · '+fmt(fixNewPcs*fixRate));}
 function fixSave(){
+  var op=myLogData[fixKey];
   var newE=fixNewPcs*fixRate;var diff=fixNewPcs-fixOldPcs;var diffE=newE-(fixOldPcs*fixRate);
   db.ref('ops/'+tdk()+'/'+CU.id+'/entries/'+fixKey+'/pcs').set(fixNewPcs);
   db.ref('ops/'+tdk()+'/'+CU.id+'/entries/'+fixKey+'/earn').set(newE);
-  db.ref('ops/'+tdk()+'/'+CU.id+'/summary').transaction(function(c){c=c||{p:0,e:0,b:0};c.p+=diff;c.e+=diffE;if(c.p<0)c.p=0;if(c.e<0)c.e=0;return c;});
-  myLogData[fixKey].pcs=fixNewPcs;myLogData[fixKey].earn=newE;toast('Исправлено: '+fixNewPcs+' шт',false);backToLog();
+  db.ref('ops/'+tdk()+'/'+CU.id+'/summary').transaction(function(c){
+    c=c||{p:0,e:0,b:0};c.p+=diff;c.e+=diffE;if(c.p<0)c.p=0;if(c.e<0)c.e=0;return c;
+  });
+  // Скорректировать очередь на разницу
+  if(diff!==0&&op.artBase){
+    var colorNum=op.art&&op.art.indexOf('-')>0?op.art.split('-')[1]:null;
+    var qKey=CU.role;if(colorNum)qKey=CU.role+'_'+colorNum;
+    db.ref('queue/'+tdk()+'/'+op.artBase+'/'+qKey).transaction(function(c){
+      return Math.max(0,(c||0)+diff);
+    });
+    if(QUEUE[op.artBase]){
+      QUEUE[op.artBase][qKey]=Math.max(0,(QUEUE[op.artBase][qKey]||0)+diff);
+    }
+  }
+  myLogData[fixKey].pcs=fixNewPcs;myLogData[fixKey].earn=newE;
+  toast('Исправлено: '+fixNewPcs+' шт',false);backToLog();
 }
 function fixDelete(){
   var op=myLogData[fixKey];
-  db.ref('ops/'+tdk()+'/'+CU.id+'/summary').transaction(function(c){c=c||{p:0,e:0,b:0};c.p-=op.pcs;c.e-=op.earn;if(c.p<0)c.p=0;if(c.e<0)c.e=0;return c;});
-  db.ref('ops/'+tdk()+'/'+CU.id+'/entries/'+fixKey).remove();delete myLogData[fixKey];toast('Запись удалена',false);backToLog();
+  // Убрать из сводки
+  db.ref('ops/'+tdk()+'/'+CU.id+'/summary').transaction(function(c){
+    c=c||{p:0,e:0,b:0};c.p-=op.pcs;c.e-=op.earn;
+    if(c.p<0)c.p=0;if(c.e<0)c.e=0;return c;
+  });
+  // Вернуть в очередь — убрать то что было записано
+  if(op.artBase){
+    var colorNum = op.art&&op.art.indexOf('-')>0 ? op.art.split('-')[1] : null;
+    var qKey = CU.role;
+    if(colorNum) qKey = CU.role+'_'+colorNum;
+    db.ref('queue/'+tdk()+'/'+op.artBase+'/'+qKey).transaction(function(c){
+      return Math.max(0,(c||0)-op.pcs);
+    });
+    // Обновить локальную очередь
+    if(QUEUE[op.artBase]){
+      QUEUE[op.artBase][qKey]=Math.max(0,(QUEUE[op.artBase][qKey]||0)-op.pcs);
+    }
+  }
+  db.ref('ops/'+tdk()+'/'+CU.id+'/entries/'+fixKey).remove();
+  delete myLogData[fixKey];
+  toast('Запись удалена, количество возвращено в очередь',false);
+  backToLog();
 }
 function backToLog(){document.getElementById('ov-fixop').style.display='none';document.getElementById('ov-mylog').style.display='flex';renderMyLog();}
 
