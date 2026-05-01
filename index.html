@@ -1703,8 +1703,16 @@ function goTab(){
     var all=s.val()||{};var mt={};
     workers.forEach(function(u){mt[u.id]={p:0,e:0,b:0,days:{}};});
     Object.keys(all).forEach(function(dk){if(dk.startsWith(mp))workers.forEach(function(u){var sm=all[dk][u.id]&&all[dk][u.id].summary;if(sm){mt[u.id].p+=sm.p||0;mt[u.id].e+=sm.e||0;mt[u.id].b+=sm.b||0;mt[u.id].days[dk]=sm;}});});
-    db.ref('paid/'+mp).once('value').then(function(ps){
-      paidData=ps.val()||{};
+    db.ref('paid').once('value').then(function(ps){
+      // paid структура: {mp: {uid: {dk: true}}} — объединяем все месяцы
+      var rawPaid=ps.val()||{};
+      paidData={};
+      Object.keys(rawPaid).forEach(function(month){
+        Object.keys(rawPaid[month]||{}).forEach(function(uid){
+          if(!paidData[uid]) paidData[uid]={};
+          Object.assign(paidData[uid], rawPaid[month][uid]||{});
+        });
+      });
       var tot=0,pai=0;
       workers.forEach(function(u){tot+=mt[u.id].e;var pd=paidData[u.id]||{};Object.keys(mt[u.id].days).forEach(function(dk){if(pd[dk])pai+=mt[u.id].days[dk].e||0;});});
       sv('tab-tot',fmt(tot));sv('tab-paid2',fmt(pai));sv('tab-debt','долг: '+fmt(tot-pai));
