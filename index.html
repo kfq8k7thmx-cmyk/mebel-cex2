@@ -1047,8 +1047,24 @@ function wbqSave(){
   .then(function(){
     return db.ref('ops/'+dk+'/'+CU.id+'/summary').transaction(function(c){c=c||{p:0,e:0,b:0};c.p+=wbCurrentQty;c.e+=earn;if(wbCurrentMode==='bad')c.b+=wbCurrentQty;return c;});
   }).then(function(){
-    if(wbCurrentMode==='good')db.ref('stock/'+wbCurrentTask.art).transaction(function(c){c=c||{total:0,lastDate:''};c.total+=wbCurrentQty;c.lastDate=dk;return c;});
-    toast(wbCurrentTask.art+' · '+wbCurrentQty+' шт'+(wbCurrentMode==='good'?' → склад':' брак'),false);
+    if(wbCurrentMode==='good'){
+      db.ref('stock/'+wbCurrentTask.art).transaction(function(c){c=c||{total:0,lastDate:''};c.total+=wbCurrentQty;c.lastDate=dk;return c;});
+    } else {
+      // Брак — отправить мастеру на реставрацию
+      db.ref('brak').push({
+        art:wbCurrentTask.art,
+        artBase:wbCurrentTask.artBase,
+        nm:wbCurrentTask.art,
+        qty:wbCurrentQty,
+        reason:'Возврат WB — требует реставрации',
+        from:CU.name,
+        time:ts,
+        date:dk,
+        fixed:false,
+        source:'wb'
+      });
+    }
+    toast(wbCurrentTask.art+' · '+wbCurrentQty+' шт'+(wbCurrentMode==='good'?' → склад':' → мастеру на реставрацию'),false);
     closeOv();setTimeout(loadWbHistory,600);
   }).catch(function(err){toast('Ошибка: '+err.message,true);});
 }
