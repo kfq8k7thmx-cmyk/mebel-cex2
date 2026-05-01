@@ -902,6 +902,12 @@ function opSave(){
           c=c||{total:0,lastDate:''};c.total+=opCtx.q;c.lastDate=dk2;return c;
         });
       }
+      // Если ножки — списать со склада при первом этапе (покраска)
+      var isLegsOp = opCtx.artBase&&(opCtx.artBase.toLowerCase().indexOf('ножк')>=0||opCtx.artBase.toLowerCase().indexOf('leg')>=0);
+      if(isLegsOp && opCtx.masterStageKey && opCtx.masterStageKey.indexOf('stage_0')>=0){
+        db.ref('legs/stock').transaction(function(c){ return Math.max(0,(c||0)-opCtx.q); });
+        db.ref('legs/history').push({type:'out',sets:opCtx.q,worker:CU.name,date:tdk()});
+      }
     } else {
       updateQueue(opCtx.artBase, CU.role, opCtx.q, colorNum, carpStageIdx);
       var qArt = QUEUE[opCtx.artBase] || {};
@@ -1195,9 +1201,13 @@ function dismissNotif(el){el.style.display='none';if(el.dataset&&el.dataset.key)
 function startMaster(){
   sv('work-name','Ассалам алайкум, '+CU.name);
   sv('work-role','Мастер');
-  toast('Роль: '+CU.role+' | '+ROLE[CU.role], false);
   sty('work-av',CU.avS);sv('work-av',CU.init);
   loadBrakAlerts();loadActiveNotif('work');
+  // Загрузить остаток ножек
+  db.ref('legs/stock').on('value',function(s){
+    LEGS_STOCK=s.val()||0;
+    renderMasterContent();
+  });
   loadQueue(function(){ renderMasterContent(); });
   var ref=db.ref('ops/'+tdk()+'/'+CU.id+'/summary');
   ref.on('value',function(s){var d=s.val()||{p:0,e:0};sv('work-d',d.p||0);sv('work-e',fmt(d.e||0));});
@@ -1259,10 +1269,14 @@ function renderMasterContent(){
   items.forEach(function(item){
     var q=QUEUE[item.art]||{};
 
-    // Откуда берём лимит — от столяра или ЧПУ
+    // Откуда берём лимит
     var carpStages=item.stages?item.stages.filter(function(s){return s.role==='carp';}):[];
     var sourceLimit;
-    if(carpStages.length>0){
+    var isLegsItem = item.art.toLowerCase().indexOf('ножк')>=0 || item.art.toLowerCase().indexOf('leg')>=0;
+    if(isLegsItem){
+      // Ножки — лимит от склада ножек
+      sourceLimit = LEGS_STOCK;
+    } else if(carpStages.length>0){
       var carpDone=carpStages.map(function(s,i){return q['carp_stage_'+i]||0;});
       sourceLimit=Math.min.apply(null,carpDone);
     } else {
