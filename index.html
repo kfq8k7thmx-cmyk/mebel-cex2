@@ -1648,20 +1648,29 @@ function openWbRestoration(brakKey,brak){
     sheet.querySelector('#wb-r-minus').addEventListener('click',function(){qty=Math.max(1,qty-1);render();});
     sheet.querySelector('#wb-r-plus').addEventListener('click',function(){qty=Math.min(brak.qty,qty+1);render();});
     saveBtn.addEventListener('click',function(){
-      var earn=qty*300;var dk=tdk();var ts=timeStr();
+      // Читаем количество напрямую из span
+      var spanEl=sheet.querySelector('#wb-r-qty');
+      var actualQty=spanEl?parseInt(spanEl.textContent)||qty:qty;
+      var earn=actualQty*300;var dk=tdk();var ts=timeStr();
       var artKey=brak.art||brak.nm;
       db.ref('ops/'+dk+'/'+CU.id+'/entries').push({
         art:artKey,artBase:artKey,nm:'Реставрация WB',stage:'Мастер',
-        pcs:qty,earn:earn,brak:0,time:ts
+        pcs:actualQty,earn:earn,brak:0,time:ts
       });
       db.ref('ops/'+dk+'/'+CU.id+'/summary').transaction(function(c){
-        c=c||{p:0,e:0,b:0};c.p+=qty;c.e+=earn;return c;
+        c=c||{p:0,e:0,b:0};c.p+=actualQty;c.e+=earn;return c;
       });
       db.ref('stock/'+artKey).transaction(function(c){
-        c=c||{total:0,lastDate:''};c.total+=qty;c.lastDate=dk;return c;
+        c=c||{total:0,lastDate:''};c.total+=actualQty;c.lastDate=dk;return c;
       });
-      db.ref('brak/'+brakKey+'/fixed').set(true);
-      toast(artKey+' · '+qty+' шт → склад · '+fmt(earn),false);
+      // Если исправил не всё — оставить запись открытой с оставшимся количеством
+      var remaining=brak.qty-actualQty;
+      if(remaining>0){
+        db.ref('brak/'+brakKey+'/qty').set(remaining);
+      } else {
+        db.ref('brak/'+brakKey+'/fixed').set(true);
+      }
+      toast(artKey+' · '+actualQty+' шт → склад · '+fmt(earn),false);
       rmTmpOv('ov-wb-restore');
     });
     cancelBtn.addEventListener('click',function(){rmTmpOv('ov-wb-restore');});
