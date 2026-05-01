@@ -464,9 +464,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color
   <div class="sh-title">Приход ножек</div>
   <div class="sh-sub">1 комплект = 12 штук</div>
   <div class="field"><div class="field-lbl">Количество комплектов</div>
-    <div class="stpr-yld"><button onclick="legsChg(-1)">&#8722;</button><span id="legs-qty-val">1</span><button onclick="legsChg(1)">+</button></div>
+    <input id="legs-qty-inp" type="number" inputmode="numeric" placeholder="10" style="font-size:24px;text-align:center;padding:14px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg);color:var(--text);width:100%;outline:none" oninput="updateLegsPcs()">
   </div>
-  <div style="text-align:center;font-size:13px;color:var(--sub);margin-bottom:16px" id="legs-pcs-lbl">= 12 штук</div>
+  <div style="text-align:center;font-size:13px;color:var(--sub);margin-bottom:16px" id="legs-pcs-lbl">= 0 штук</div>
   <button class="btn-primary" style="background:#6B21A8" onclick="legsSave()">Добавить на склад</button>
   <button class="btn-cancel" onclick="closeOv()">Отмена</button>
 </div></div>
@@ -1918,24 +1918,28 @@ function renderLegsHistory(){
 }
 
 function openLegsAdd(){
-  legsQtyV = 1;
-  sv('legs-qty-val', 1);
-  sv('legs-pcs-lbl', '= '+LEGS_PER_SET+' штук');
+  var inp=document.getElementById('legs-qty-inp');
+  if(inp){inp.value='';} 
+  sv('legs-pcs-lbl','= 0 штук');
   openOv('ov-legs-add');
+  setTimeout(function(){if(inp)inp.focus();},300);
 }
 
-function legsChg(d){
-  legsQtyV = Math.max(1, legsQtyV + d);
-  sv('legs-qty-val', legsQtyV);
-  sv('legs-pcs-lbl', '= '+(legsQtyV*LEGS_PER_SET)+' штук');
+function updateLegsPcs(){
+  var inp=document.getElementById('legs-qty-inp');
+  var v=parseInt(inp?inp.value:0)||0;
+  sv('legs-pcs-lbl','= '+(v*LEGS_PER_SET)+' штук');
 }
 
 function legsSave(){
-  db.ref('legs/stock').transaction(function(c){ return (c||0) + legsQtyV; });
-  db.ref('legs/history').push({type:'in', sets:legsQtyV, date:tdk()});
-  toast('+'+legsQtyV+' компл. ножек ('+( legsQtyV*LEGS_PER_SET)+' шт)', false);
+  var inp=document.getElementById('legs-qty-inp');
+  var v=parseInt(inp?inp.value:0)||0;
+  if(!v||v<=0){if(inp)inp.style.borderColor='var(--red-v)';return;}
+  db.ref('legs/stock').transaction(function(c){ return (c||0)+v; });
+  db.ref('legs/history').push({type:'in',sets:v,date:tdk()});
+  toast('+'+v+' компл. ножек ('+( v*LEGS_PER_SET)+' шт)',false);
   closeOv();
-  setTimeout(function(){ renderLegsStock(); renderLegsHistory(); }, 500);
+  setTimeout(function(){ renderLegsStock(); renderLegsHistory(); },500);
 }
 
 // Мастер берёт ножки — вычесть из склада
